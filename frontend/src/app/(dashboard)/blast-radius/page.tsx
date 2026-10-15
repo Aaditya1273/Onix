@@ -9,6 +9,7 @@ interface BlastRadiusResult {
   exposed_services: string[]
   maintainer_shared: string[]
   typosquats: string[]
+  squat_of?: string
   dependency_graph: GraphContext
   maintainer_graph: GraphContext
   typosquat_graph: GraphContext
@@ -42,7 +43,10 @@ export default function BlastRadiusPage() {
     }
   }
 
-  const flagged = (result?.typosquats.length ?? 0) > 0
+  // Flag the package only if it IS a typosquat. A real package that has
+  // impersonators (lodash, with lodahs pointing at it) is the victim, not the threat.
+  const flagged = !!result?.squat_of
+  const impersonated = !flagged && (result?.typosquats.length ?? 0) > 0
 
   return (
     <div className="p-8 max-w-6xl mx-auto animate-fadeIn">
@@ -95,7 +99,7 @@ export default function BlastRadiusPage() {
           <div className="grid grid-cols-4 gap-4 mb-6">
             <div className={`stat-card ${flagged ? 'orange' : ''}`}>
               <p className="text-[11px] font-medium uppercase tracking-wider opacity-70">Verdict</p>
-              <p className="text-xl font-bold mt-1">{flagged ? 'Flagged' : 'No findings'}</p>
+              <p className="text-xl font-bold mt-1">{flagged ? `Typosquat of ${result?.squat_of}` : impersonated ? `${result?.typosquats.length} impersonator(s)` : 'No findings'}</p>
             </div>
             <div className="stat-card">
               <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wider">Exposed services</p>

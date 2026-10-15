@@ -84,6 +84,7 @@ export function EntityGraph({ graphContext, height = 420 }: { graphContext: Grap
   // match its card, including when the card resizes (window resize, sidebar
   // toggle, grid reflow).
   const containerRef = useRef<HTMLDivElement>(null)
+  const hasNodes = data.nodes.length > 0
   const [width, setWidth] = useState(0)
   useEffect(() => {
     const el = containerRef.current
@@ -91,7 +92,10 @@ export function EntityGraph({ graphContext, height = 420 }: { graphContext: Grap
     const ro = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width))
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+    // Re-run when the graph goes from empty to non-empty: the empty state
+    // renders no container, so a mount-only effect would never measure one
+    // and a graph that arrives later would stay at width 0, never drawn.
+  }, [hasNodes])
 
   if (data.nodes.length === 0) {
     return (

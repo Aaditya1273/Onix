@@ -1,6 +1,6 @@
-# Graph Hacks Submission: The Idea
+# VIGIL: Graph Hacks Submission
 
-Oct 15, 2026 · @Arpit
+Oct 15, 2026 · @Aaditya
 
 ## Thesis
 
@@ -10,7 +10,7 @@ Oct 15, 2026 · @Arpit
 
 **One-line gap statement.** The best runtime defenses in the literature (PACE, AGATE, PPMF) build a provenance graph and then throw it away at the end of the episode. The best commercial products (Zenity, AIR, Kontext) sit at the enterprise perimeter and never see the developer's terminal. Nobody has made the graph the persistent, shared, queryable brain of the firewall. That is the whole idea.
 
-**Working name.** The current name, VIGIL, is already used by two 2026 arXiv papers in this exact space. Pick a new one before submitting (candidates: Keel, Tether, Ledger); search arXiv and GitHub for ten minutes before committing.
+**Name.** VIGIL is the submission name. Two 2026 arXiv papers in this space share it (cited below); this project is unrelated to them.
 
 ## The problem, with evidence
 
@@ -235,7 +235,7 @@ Agent governance is the most-funded slice of AI safety in 2026, and the money is
 
 | Stage | Who | Entry | Revenue |
 | --- | --- | --- | --- |
-| 1. Individual developer | Claude Code, Cursor, OpenClaw users who just lost files or money | `npx <name> init`, local FalkorDB in Docker, observe mode first | Free. The graph they build is the switching cost |
+| 1. Individual developer | Claude Code, Cursor, OpenClaw users who just lost files or money | `vigil-cli init`, local FalkorDB in Docker, observe mode first | Free. The graph they build is the switching cost |
 | 2. Team | Platform engineers with several agents and a shared repo | Shared FalkorDB instance, one graph per repo or team, policy promotion with human approval | Per-seat. Shared history and the cross-agent view are the paid features |
 | 3. Enterprise | Security buyers who need audit and tenancy | Multigraph per business unit, shared threat graph, SSO, retention | Platform contract. Herd immunity and compliance evidence are the moat |
 
@@ -249,7 +249,7 @@ A security tool that gamifies itself gets uninstalled. The retention loops below
 
 **Install path (build this first, not last)**
 
-1. `npx <name> init` writes a Claude Code `PreToolUse` hook and an MCP gateway entry for Cursor or OpenClaw.
+1. `vigil-cli init` writes a Claude Code `PreToolUse` hook and an MCP gateway entry for Cursor or OpenClaw.
 2. FalkorDB starts locally in Docker with a persistent volume, or the hook points at a shared instance.
 3. First run is observe mode: nothing is blocked, the graph fills for a day.
 4. Day two shows "here is what I would have blocked, here is the autonomy you have earned," and the user turns enforcement on.
@@ -300,7 +300,7 @@ The idea is strong; the risks are in execution and in claiming more than the gra
 
 | Risk | Why it matters | Mitigation |
 | --- | --- | --- |
-| Name collision | Two 2026 arXiv papers are called VIGIL; judges who search will assume it was borrowed | Rename before submission |
+| Name collision | Two 2026 arXiv papers are called VIGIL; judges who search may assume it was borrowed | Kept as the submission name; the overlap is stated up front and both papers are cited |
 | Graph as decoration | Rule 3 disqualifies a product that still works without FalkorDB; the current README advertises exactly that | Move intent, trust, provenance, behavior and audit into the graph; write the removal-test paragraph |
 | Recycled project | Rules 8 and 9 and the FAQ require the FalkorDB implementation to be new work | Clean commit history from Oct 15; explicit "built during" section; Impact Forge and Featherless framing removed |
 | Scope across three tracks | A broken third layer hurts the other two | Build Track 1 and 2 fully first; add Track 3 only if the identity graph works in the demo |

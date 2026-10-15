@@ -1,0 +1,52 @@
+# NOTE: this file predates the actual vigil-server binary and root
+# Dockerfile — it references image tags nothing here builds, a Redis
+# dependency the server does not use (session/policy/cost state is
+# in-process), and a REACT_APP_* var that only means something to
+# Create React App, not this Next.js frontend. Left as-is except for the
+# graph env var below; treat the rest as
+# scaffolding to replace with `docker build -f Dockerfile .`, not a
+# working deployment config yet. The working local stack (FalkorDB + server)
+# is docker-compose.yaml.
+version: "3.8"
+
+services:
+  vigil-control-plane:
+    image: vigil/control-plane:v1.0.0
+    container_name: vigil-control-plane
+    restart: always
+    ports:
+      - "8080:8080" # REST API & WebSockets
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+    environment:
+      - VIGIL_ENV=production
+      - VIGIL_REDIS_URL=redis://vigil-redis:6379
+      - VIGIL_LOG_LEVEL=info
+      # FalkorDB graph memory. For a working local stack use
+      # docker-compose.yaml; this file remains scaffolding.
+      - VIGIL_FALKORDB_URL=${VIGIL_FALKORDB_URL:-redis://falkordb:6379}
+    depends_on:
+      - vigil-redis
+
+  vigil-redis:
+    image: redis:7-alpine
+    container_name: vigil-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - vigil_redis_data:/data
+    command: redis-server --appendonly yes
+
+  vigil-frontend:
+    image: vigil/frontend:v1.0.0
+    container_name: vigil-frontend
+    restart: always
+    ports:
+      - "3301:3301"
+    environment:
+      - NODE_ENV=production
+      - REACT_APP_API_URL=http://vigil-control-plane:8080/api/v1
+
+volumes:
+  vigil_redis_data:

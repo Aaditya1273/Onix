@@ -1,0 +1,56 @@
+# Local stack: FalkorDB (the firewall's memory, persisted) + vigil-server.
+#
+#   docker compose up -d
+#   docker compose run --rm seed        # load the demo graph once
+#   open http://localhost:3000 (FalkorDB browser) to watch the graph fill
+#
+# Kill everything and bring it back: the graph, and every agent's earned
+# autonomy, survive in the falkordb_data volume.
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    ports:
+      - "${FALKORDB_PORT:-6379}:6379" # Redis protocol (GRAPH.QUERY)
+      - "${FALKORDB_BROWSER_PORT:-3000}:3000" # FalkorDB browser
+    volumes:
+      - falkordb_data:/var/lib/falkordb/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 15
+
+  vigil:
+    build: .
+    ports:
+      - "${VIGIL_PORT:-8080}:8080" # VIGIL_PORT=8088 if 8080 is taken
+    environment:
+      VIGIL_FALKORDB_URL: redis://falkordb:6379
+      VIGIL_ORG_ID: ${VIGIL_ORG_ID:-default}
+      VIGIL_AUDIT_PATH: /data/vigil-audit.jsonl
+      VIGIL_CONTROL_TOKEN: ${VIGIL_CONTROL_TOKEN:-}
+    volumes:
+      - vigil_data:/data
+    depends_on:
+      falkordb:
+        condition: service_healthy
+
+  seed:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM golang:1.25-alpine
+        WORKDIR /app
+        COPY . .
+        RUN go build -o /vigil-cli ./cmd/vigil-cli
+        ENTRYPOINT ["/vigil-cli", "graph-seed"]
+    environment:
+      VIGIL_FALKORDB_URL: redis://falkordb:6379
+      VIGIL_ORG_ID: ${VIGIL_ORG_ID:-default}
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    profiles: ["tools"]
+
+volumes:
+  falkordb_data:
+  vigil_data:

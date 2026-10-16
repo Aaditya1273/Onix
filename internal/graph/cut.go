@@ -20,7 +20,7 @@ import (
 // Capacities are chosen so the cut can be read off the flow value alone:
 //
 //	committed edges (source, read, taints)  inf
-//	argument -> effect (redact that arg)    2
+//	argument -> effect (redact that arg)    2, or inf for a destination (Fixed)
 //	effect -> sink (block the call)         2*n - 1   (n = number of arguments)
 //
 // Redacting k tainted arguments costs 2k (even); blocking costs 2n-1 (odd).
@@ -38,6 +38,10 @@ func BlockCap(n int) int64 { return int64(2*n - 1) }
 type CutArg struct {
 	Key    string
 	Hashes []string // tainted value hashes this argument carries
+	// Fixed marks an argument that cannot be redacted: where the call sends
+	// data (a URL, a host). Its edge carries inf, so a tainted destination
+	// can only be cut at the terminal edge: the call is blocked.
+	Fixed bool
 }
 
 type Cut struct {
@@ -71,7 +75,7 @@ func (c *Client) ComputeCut(ctx context.Context, callID, tool string, args []Cut
 		for i, h := range a.Hashes {
 			hs[i] = h
 		}
-		argList = append(argList, map[string]any{"key": a.Key, "hashes": hs})
+		argList = append(argList, map[string]any{"key": a.Key, "hashes": hs, "fixed": a.Fixed})
 	}
 	if err := c.Exec(ctx, q("cut_build"), map[string]any{
 		"call": callID, "tool": tool, "args": argList,

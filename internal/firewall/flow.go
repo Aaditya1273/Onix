@@ -186,7 +186,7 @@ func (f *Firewall) checkFlows(ctx context.Context, c Call, caps []string, callID
 
 	args := make([]graph.CutArg, 0, len(keys))
 	for _, k := range keys {
-		a := graph.CutArg{Key: k}
+		a := graph.CutArg{Key: k, Fixed: destinationKeys[k]}
 		for _, h := range hashAll(perArg[k]) {
 			if tainted[h] {
 				a.Hashes = append(a.Hashes, h)
@@ -227,6 +227,10 @@ func (f *Firewall) checkFlows(ctx context.Context, c Call, caps []string, callID
 	}
 	return fv, gf
 }
+
+// destinationKeys name where a call sends data. Redacting one leaves a call
+// with nowhere to go, so a tainted destination blocks instead.
+var destinationKeys = keySet("url", "uri", "endpoint", "host", "hostname", "domain", "webhook", "webhook_url")
 
 // Redacted is the placeholder a cut argument's tainted values become.
 const Redacted = "[REDACTED by VIGIL]"

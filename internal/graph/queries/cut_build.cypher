@@ -3,14 +3,14 @@
 // Proxies (FlowRead, FlowValue) point at the real Call / Value through COPY_OF; they exist because FalkorDB 6.0.2's
 // maxFlow takes exactly one relationship type and refuses parallel edges of that type anywhere in the graph
 // (FALKORDB_FINDINGS F3, F4), and two calls' networks would otherwise share the same committed edge.
-// Committed edges carry $inf; severing an argument costs $redactCap; blocking the call costs $blockCap.
-// params: {"call": "s1-2", "tool": "dns_update", "args": [{"key": "txt", "hashes": ["0000000000000000000000000000000000000000000000000000000000000000"]}, {"key": "ttl", "hashes": []}], "redactCap": 2, "blockCap": 3, "inf": 1000000}
+// Committed edges carry $inf; severing an argument costs $redactCap (or $inf for a fixed one: a destination); blocking the call costs $blockCap.
+// params: {"call": "s1-2", "tool": "dns_update", "args": [{"key": "txt", "hashes": ["0000000000000000000000000000000000000000000000000000000000000000"], "fixed": false}, {"key": "ttl", "hashes": [], "fixed": false}], "redactCap": 2, "blockCap": 3, "inf": 1000000}
 CREATE (src:FlowSource {call:$call, name:'source'})
 CREATE (eff:Effect {call:$call, tool:$tool, name:'effect: ' + $tool})
 CREATE (eff)-[:FLOW {kind:'terminal', cap:$blockCap, call:$call}]->(:FlowSink {call:$call, name:'sink'})
 WITH src, eff
 UNWIND $args AS a
-CREATE (slot:ArgSlot {call:$call, key:a.key, name:'arg: ' + a.key})-[:FLOW {kind:'arg', cap:$redactCap, call:$call, key:a.key}]->(eff)
+CREATE (slot:ArgSlot {call:$call, key:a.key, name:'arg: ' + a.key})-[:FLOW {kind:'arg', cap:CASE WHEN a.fixed THEN $inf ELSE $redactCap END, call:$call, key:a.key}]->(eff)
 WITH src, slot, a
 UNWIND a.hashes AS h
 MATCH (v:Value {hash:h})

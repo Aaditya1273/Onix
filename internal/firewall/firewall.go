@@ -111,6 +111,8 @@ type Result struct {
 	egress []string
 	// sig identifies the exact call for loop detection.
 	sig string
+	// pkg is the package an install-shaped call installs.
+	pkg string
 	// SupplyChain is populated only when a call was blocked by the
 	// compromised-package list (supply_chain.go) — the structured
 	// exposed-services/maintainer/typosquat report an incident responder
@@ -227,6 +229,9 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 	}
 	res.ID = fmt.Sprintf("%s-%d", c.SessionID, res.At.UnixNano())
 	res.Predicted = f.predict(ctx, c)
+	if p := blastRadiusTarget(c); p != "" {
+		res.pkg, _ = splitPkgVersion(p)
+	}
 
 	// --- 1. Declared intent, graph-adjudicated when uncertain -----------------
 	verdict := pol.Evaluate(c.Tool, c.Args)
@@ -683,8 +688,8 @@ func (f *Firewall) finish(ctx context.Context, span telemetry.Span, sess *Sessio
 		Agent: res.Agent, Session: res.SessionID, Tool: res.Tool, Caps: res.Caps, Repo: res.Repo,
 		Model: res.ModelUsed, GraphMS: res.GraphMS, Egress: res.egress,
 		CutEdges: cutEdges(res.Cut), CutCost: cutCost(res.Cut), Paths: res.GraphPaths,
-		Predicted: predictedIfAllowed(res),
-		Decision:  string(res.Decision), Stage: res.Stage, Reason: res.Reason,
+		Predicted: predictedIfAllowed(res), Package: res.pkg,
+		Decision: string(res.Decision), Stage: res.Stage, Reason: res.Reason,
 		Hash: hash, PrevHash: prevHash, At: res.At,
 	})
 

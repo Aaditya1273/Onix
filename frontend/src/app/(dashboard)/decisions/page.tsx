@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Scissors, AlertTriangle, Eye } from 'lucide-react'
+import { Scissors, AlertTriangle, Eye, HelpCircle } from 'lucide-react'
 import { EntityGraph, type GraphContext } from '@/components/EntityGraph'
 
 interface DecisionRow {
@@ -22,6 +22,14 @@ interface EffectRef {
   kind: string
   name: string
   hidden?: boolean
+}
+
+interface WhyAnswer {
+  flips: boolean
+  edge?: string
+  cause_decision?: string
+  sentence: string
+  method: string
 }
 
 interface Effects {
@@ -54,6 +62,14 @@ export default function DecisionsPage() {
   const [sel, setSel] = useState<DecisionRow | null>(null)
   const [flow, setFlow] = useState<{ edges: FlowEdge[]; graph_context: GraphContext } | null>(null)
   const [effects, setEffects] = useState<Effects | null>(null)
+  const [why, setWhy] = useState<WhyAnswer | null>(null)
+
+  const askWhy = async (d: DecisionRow) => {
+    try {
+      const r = await fetch(`/api/v1/vigil/decisions/${encodeURIComponent(d.id)}/why`, { cache: 'no-store' })
+      if (r.ok) setWhy(await r.json())
+    } catch { /* leave the panel without an answer */ }
+  }
 
   useEffect(() => {
     const load = async () => {
@@ -73,6 +89,7 @@ export default function DecisionsPage() {
     setSel(d)
     setFlow(null)
     setEffects(null)
+    setWhy(null)
     const id = encodeURIComponent(d.id)
     try {
       const [f, e] = await Promise.all([
@@ -136,6 +153,20 @@ export default function DecisionsPage() {
             <span className="font-mono text-[11px] text-gray-400 ml-auto">{sel.id}</span>
           </div>
           <p className="text-sm text-gray-600 mb-4">{sel.reason}</p>
+
+          {(sel.verdict !== 'ALLOW' || sel.cut_edges.length > 0) && (
+            <div className="mb-4">
+              <button onClick={() => askWhy(sel)} className="btn-orange inline-flex items-center gap-2 text-sm">
+                <HelpCircle className="w-4 h-4" /> Why?
+              </button>
+              {why && (
+                <div className={`mt-3 px-4 py-3 rounded-xl border text-sm ${why.flips ? 'bg-orange-50 border-orange-200 text-gray-800' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
+                  <p>{why.sentence}</p>
+                  {why.edge && <p className="font-mono text-xs text-gray-500 mt-2">counterfactual edge: {why.edge}</p>}
+                </div>
+              )}
+            </div>
+          )}
 
           {flow && flow.edges.length > 0 ? (
             <>

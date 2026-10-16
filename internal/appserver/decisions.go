@@ -57,6 +57,22 @@ func (st *stack) registerDecisionRoutes(api *mux.Router) {
 		writeJSON(w, http.StatusOK, map[string]any{"predicted": pred, "observed": obs, "hidden_effect": hidden})
 	}).Methods("GET", "OPTIONS")
 
+	// GET /vigil/decisions/{id}/why: the single edge whose absence would have
+	// let the call through, in one sentence.
+	api.HandleFunc("/vigil/decisions/{id}/why", func(w http.ResponseWriter, r *http.Request) {
+		if !graphOr503(w) {
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		why, err := st.graph.Why(ctx, mux.Vars(r)["id"])
+		if err != nil {
+			writeErr(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, why)
+	}).Methods("GET", "OPTIONS")
+
 	// GET /vigil/decisions/{id}/flow: the call's influence network, capacities
 	// and the edges FalkorDB's min cut severed.
 	api.HandleFunc("/vigil/decisions/{id}/flow", func(w http.ResponseWriter, r *http.Request) {

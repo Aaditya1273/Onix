@@ -521,6 +521,34 @@ mcp__fmt__format {path: src/app.go}  → {}   (earned trust revoked: Claude Code
 **Limit, stated plainly:** "observed" is what the tool or harness *reports*, not a syscall trace. A tool that writes a
 file and says nothing is not caught here; kernel-level provenance (eBPF, as in Agent-Warden) would be.
 
+## Counterfactual replay: "why?" in one sentence
+
+[Causal Agent Replay (arXiv 2606.08275)](https://www.alphaxiv.org/abs/2606.08275) attributes agent failures by
+counterfactual replay inside one run. VIGIL asks the same question of the **persistent graph**, across sessions: for
+any decision that stopped or rewrote a call, *which single edge, had it not existed, would have let the call through?*
+
+- **Decided by a min cut** (exfiltration, provenance, redaction): FalkorDB enumerates every source-to-sink path of the
+  decision's stored influence network ([`why_paths.cypher`](internal/graph/queries/why_paths.cypher)). An edge on
+  *every* path is a bridge: without it nothing tainted reaches the call, the max flow is 0, and the call is allowed.
+  The committed `read` bridge is followed back through `COPY_OF` to the real call, its session, and the **Decision
+  node that allowed that read**, so the answer walks the decision chain.
+- **Decided by one graph fact** (typosquat, shared threat, identity, rug pull): that fact, confirmed to still be in
+  the graph (`TYPOSQUAT_OF`, the threat hash, `IS_A`, `SUPERSEDES`).
+- **Not decided by the graph** (budget, behavior detectors, a model's judgement, the operator's compromised list): the
+  answer says so instead of inventing an edge.
+
+From the beat-7 run, verbatim (`GET /api/v1/vigil/decisions/{id}/why`):
+
+```text
+If read_file in session cc-s3 had not read value#5246d46b244a (at 2026-10-16 14:47:25 UTC, decision
+cc-s3-1792162045680878215), this call would have been ALLOWed instead of blocked: that read is on every path the
+min cut severed.
+```
+
+<p align="center">
+  <img src="docs/img/counterfactual.png" width="85%" alt="Decisions page: a blocked dns_update with its terminal cut in red and the Why? answer naming the earlier read">
+</p>
+
 ## 10. The dashboard
 
 <table><tr>

@@ -8,7 +8,8 @@
 # autonomy, survive in the falkordb_data volume.
 services:
   falkordb:
-    image: falkordb/falkordb:latest
+    # Pinned: on Oct 15, 2026 `latest` still pointed at 4.22.1. See FALKORDB_FINDINGS.md.
+    image: falkordb/falkordb:6.0.2
     ports:
       - "${FALKORDB_PORT:-6379}:6379" # Redis protocol (GRAPH.QUERY)
       - "${FALKORDB_BROWSER_PORT:-3000}:3000" # FalkorDB browser

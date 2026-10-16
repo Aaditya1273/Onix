@@ -72,10 +72,6 @@ func Paths(ts []Triplet) []string {
 	return out
 }
 
-// edgeReturn is the RETURN clause every edge query ends with, for a bound
-// relationship r.
-const edgeReturn = `RETURN startNode(r).name, labels(startNode(r))[0], type(r), endNode(r).name, labels(endNode(r))[0]`
-
 func triplets(rows Rows) []Triplet {
 	out := make([]Triplet, 0, len(rows))
 	for _, r := range rows {
@@ -142,18 +138,7 @@ func (c *Client) RecordCall(r CallRecord) {
 		"hash": r.Hash, "prev": r.PrevHash, "ts": r.At.UnixNano(),
 	}
 	c.enqueue(func(ctx context.Context) error {
-		return c.Exec(ctx, `
-MERGE (a:Agent {id:$agent})
-MERGE (s:Session {id:$session}) ON CREATE SET s.started_at = $ts
-MERGE (a)-[:RAN]->(s)
-MERGE (t:Tool {name:$tool})
-FOREACH (cap IN $capList | MERGE (cp:Capability {name:cap}) MERGE (t)-[:REQUIRES]->(cp))
-CREATE (s)-[:MADE]->(k:Call {id:$id, ts:$ts, tool:$tool, repo:$repo, caps:$caps, decision:$decision, stage:$stage})-[:INVOKED]->(t)
-CREATE (k)-[:DECIDED]->(d:Decision {id:$id, verdict:$decision, stage:$stage, reason:$reason, model:$model, graph_ms:$graphMs, hash:$hash, prev_hash:$prev, ts:$ts})
-FOREACH (h IN $egress | MERGE (v:Value {hash:h}) MERGE (k)-[:ARG_CONTAINS]->(v))
-WITH d
-OPTIONAL MATCH (p:Decision {hash:$prev}) WHERE $prev <> ''
-FOREACH (_ IN CASE WHEN p IS NULL THEN [] ELSE [1] END | CREATE (d)-[:PREV]->(p))`, params)
+		return c.Exec(ctx, q("record_call"), params)
 	})
 }
 
@@ -165,22 +150,13 @@ func (c *Client) RecordOutcome(agent, session, prevTool, tool string, ok bool, c
 	}
 	params := map[string]any{"agent": agent, "session": session, "prev": prevTool, "tool": tool, "ok": ok, "cost": cost}
 	c.enqueue(func(ctx context.Context) error {
-		if err := c.Exec(ctx, `
-MATCH (:Session {id:$session})-[:MADE]->(k:Call {tool:$tool, decision:'ALLOW'})
-WHERE k.ok IS NULL
-WITH k ORDER BY k.ts DESC LIMIT 1
-SET k.ok = $ok, k.cost = $cost`, params); err != nil {
+		if err := c.Exec(ctx, q("record_outcome"), params); err != nil {
 			return err
 		}
 		if prevTool == "" {
 			return nil
 		}
-		return c.Exec(ctx, `
-MERGE (a:Tool {name:$prev})
-MERGE (b:Tool {name:$tool})
-MERGE (a)-[r:THEN {agent:$agent}]->(b)
-ON CREATE SET r.count = 1
-ON MATCH SET r.count = r.count + 1`, params)
+		return c.Exec(ctx, q("record_transition"), params)
 	})
 }
 
@@ -199,13 +175,7 @@ type Trust struct {
 // the tool's description (a rug pull); only executed, successful calls after
 // both count as evidence. Trust is scoped to one repo.
 func (c *Client) EarnedTrust(ctx context.Context, agent, repo, tool string, caps []string) (Trust, error) {
-	rows, err := c.Query(ctx, `
-OPTIONAL MATCH (t:Tool {name:$tool})
-WITH coalesce(t.changed_at, 0) AS changed
-MATCH (:Agent {id:$agent})-[:RAN]->(:Session)-[:MADE]->(k:Call {tool:$tool, caps:$caps, repo:$repo})
-WITH changed, collect(k) AS ks
-WITH ks, reduce(m = changed, k IN ks | CASE WHEN k.decision <> 'ALLOW' AND k.ts > m THEN k.ts ELSE m END) AS last
-RETURN size([k IN ks WHERE k.decision = 'ALLOW' AND k.ok = true AND k.ts > last]), size(ks), last`,
+	rows, err := c.Query(ctx, q("earned_trust"),
 		map[string]any{"agent": agent, "repo": repo, "tool": tool, "caps": CapsKey(caps)})
 	if err != nil || len(rows) == 0 {
 		return Trust{}, err
@@ -218,9 +188,7 @@ func (c *Client) PolicyDenials(ctx context.Context, caps []string) ([]Triplet, e
 	if len(caps) == 0 {
 		return nil, nil
 	}
-	return c.edges(ctx, `
-MATCH (p:Policy)-[r:DENIES]->(cp:Capability) WHERE cp.name IN $caps
-`+edgeReturn, map[string]any{"caps": caps})
+	return c.edges(ctx, q("policy_denials"), map[string]any{"caps": caps})
 }
 
 // =============================================================================
@@ -239,9 +207,7 @@ func (t Transition) P() float64 {
 }
 
 func (c *Client) Transition(ctx context.Context, agent, prev, tool string) (Transition, error) {
-	rows, err := c.Query(ctx, `
-MATCH (:Tool {name:$prev})-[r:THEN {agent:$agent}]->(n:Tool)
-RETURN n.name, r.count`, map[string]any{"agent": agent, "prev": prev})
+	rows, err := c.Query(ctx, q("transition"), map[string]any{"agent": agent, "prev": prev})
 	if err != nil {
 		return Transition{}, err
 	}
@@ -288,25 +254,15 @@ func (c *Client) GetBlastRadius(ctx context.Context, pkg string) (BlastRadius, e
 	p := map[string]any{"pkg": strings.ToLower(pkg)}
 	br := BlastRadius{Package: pkg, ExposedServices: []string{}, SharedMaintainers: []string{}, Typosquats: []string{}}
 
-	deps, err := c.edges(ctx, `
-MATCH path = (:Package {name:$pkg})<-[:DEPENDS_ON*1..4]-()
-UNWIND relationships(path) AS r
-WITH DISTINCT r
-`+edgeReturn, p)
+	deps, err := c.edges(ctx, q("blast_dependents"), p)
 	if err != nil {
 		return br, err
 	}
-	maint, err := c.edges(ctx, `
-MATCH (m:Maintainer)-[:MAINTAINS]->(:Package {name:$pkg})
-MATCH (m)-[r:MAINTAINS]->(:Package)
-`+edgeReturn, p)
+	maint, err := c.edges(ctx, q("blast_maintainers"), p)
 	if err != nil {
 		return br, err
 	}
-	squat, err := c.edges(ctx, `
-MATCH (a:Package)-[r:TYPOSQUAT_OF]->(b:Package)
-WHERE a.name = $pkg OR b.name = $pkg
-`+edgeReturn, p)
+	squat, err := c.edges(ctx, q("blast_typosquats"), p)
 	if err != nil {
 		return br, err
 	}
@@ -346,12 +302,7 @@ WHERE a.name = $pkg OR b.name = $pkg
 	// this package's maintainers controls. One account takeover reaches all
 	// of it. ponytail: PageRank recomputed per call over the whole package
 	// graph; cache it per ingest if the graph grows past ~100k packages.
-	rows, err := c.Query(ctx, `
-CALL algo.pageRank('Package', 'DEPENDS_ON') YIELD node, score
-WITH node, score MATCH (m:Maintainer)-[:MAINTAINS]->(node)
-WITH m, sum(score) AS risk
-MATCH (m)-[:MAINTAINS]->(:Package {name:$pkg})
-RETURN m.name, risk ORDER BY risk DESC`, p)
+	rows, err := c.Query(ctx, q("maintainer_pagerank"), p)
 	if err != nil {
 		return br, err
 	}
@@ -379,7 +330,7 @@ type Threat struct {
 // ThreatLookup asks the shared graph whether any tenant has blocked this.
 func (c *Client) ThreatLookup(ctx context.Context, kind, value string) (*Threat, error) {
 	rows, err := c.run(ctx, ThreatGraph, "GRAPH.RO_QUERY",
-		`MATCH (h:Hash {value:$h}) RETURN h.kind, h.first_seen, size(h.tenants)`,
+		q("threat_lookup"),
 		map[string]any{"h": Hash(kind, value)})
 	if err != nil || len(rows) == 0 {
 		return nil, err
@@ -395,10 +346,7 @@ func (c *Client) ThreatPublish(kind, value string) {
 	}
 	params := map[string]any{"h": Hash(kind, value), "kind": kind, "ts": time.Now().UnixMilli(), "tenant": Hash("tenant", c.tenant)[:16]}
 	c.enqueue(func(ctx context.Context) error {
-		_, err := c.run(ctx, ThreatGraph, "GRAPH.QUERY", `
-MERGE (h:Hash {value:$h})
-ON CREATE SET h.kind = $kind, h.first_seen = $ts, h.tenants = []
-SET h.tenants = CASE WHEN $tenant IN h.tenants THEN h.tenants ELSE h.tenants + $tenant END`, params)
+		_, err := c.run(ctx, ThreatGraph, "GRAPH.QUERY", q("threat_publish"), params)
 		return err
 	})
 }
@@ -424,21 +372,11 @@ func (c *Client) GetEntityProfile(ctx context.Context, name string) (EntityProfi
 	prof := EntityProfile{Name: name, Aliases: []string{}, EntityTypes: []string{}, DeniedBy: []string{}}
 	p := map[string]any{"name": strings.ToLower(strings.TrimSpace(name))}
 
-	alias, err := c.edges(ctx, `
-MATCH path = (:Person {name_lc:$name})-[:SAME_AS*1..3]-(:Person)
-UNWIND relationships(path) AS r
-WITH DISTINCT r
-`+edgeReturn, p)
+	alias, err := c.edges(ctx, q("entity_aliases"), p)
 	if err != nil {
 		return prof, err
 	}
-	policy, err := c.edges(ctx, `
-MATCH (:Person {name_lc:$name})-[:SAME_AS*0..3]-(who:Person)
-MATCH (who)-[isa:IS_A]->(t:EntityType)
-OPTIONAL MATCH (pol:Policy)-[den:DENIES]->(t)
-UNWIND [isa, den] AS r
-WITH DISTINCT r WHERE r IS NOT NULL
-`+edgeReturn, p)
+	policy, err := c.edges(ctx, q("entity_policy"), p)
 	if err != nil {
 		return prof, err
 	}
@@ -473,14 +411,9 @@ WITH DISTINCT r WHERE r IS NOT NULL
 // policy backbone of the whole graph when name is empty.
 func (c *Client) Neighborhood(ctx context.Context, name string) ([]Triplet, error) {
 	if name == "" {
-		return c.edges(ctx, `
-MATCH ()-[r:SAME_AS|IS_A|DENIES|CONTRADICTS]->()
-`+edgeReturn+` LIMIT 300`, nil)
+		return c.edges(ctx, q("ontology_backbone"), nil)
 	}
-	return c.edges(ctx, `
-MATCH (n) WHERE toLower(n.name) = $name
-MATCH (n)-[r]-()
-`+edgeReturn+` LIMIT 300`, map[string]any{"name": strings.ToLower(strings.TrimSpace(name))})
+	return c.edges(ctx, q("ontology_neighborhood"), map[string]any{"name": strings.ToLower(strings.TrimSpace(name))})
 }
 
 // =============================================================================
@@ -514,12 +447,7 @@ var rankName = func() map[int64]string {
 // Facts about subject, oldest first, each with its provenance authority.
 // Zero rows is an answer: the graph has never recorded this.
 func (c *Client) Facts(ctx context.Context, subject string) ([]Fact, error) {
-	rows, err := c.Query(ctx, `
-MATCH (f:Fact) WHERE f.subject_lc CONTAINS $subject
-OPTIONAL MATCH (f)-[:DERIVED_FROM*0..5]->(src:Fact)
-WITH f, min(src.trust_rank) AS authority
-RETURN f.id, f.subject, f.text, f.trust, authority, f.valid_from, f.valid_to
-ORDER BY f.valid_from`, map[string]any{"subject": strings.ToLower(strings.TrimSpace(subject))})
+	rows, err := c.Query(ctx, q("facts"), map[string]any{"subject": strings.ToLower(strings.TrimSpace(subject))})
 	if err != nil {
 		return nil, err
 	}
@@ -537,11 +465,7 @@ ORDER BY f.valid_from`, map[string]any{"subject": strings.ToLower(strings.TrimSp
 // empty), plus the SUPERSEDES and DERIVED_FROM edges between them.
 func (c *Client) Timeline(ctx context.Context, words []string) ([]Fact, []Triplet, error) {
 	p := map[string]any{"words": words}
-	rows, err := c.Query(ctx, `
-MATCH (f:Fact)
-WHERE size($words) = 0 OR any(w IN $words WHERE toLower(f.text) CONTAINS w OR f.subject_lc CONTAINS w)
-RETURN f.id, f.subject, f.text, f.trust, f.valid_from, f.valid_to
-ORDER BY f.valid_from`, p)
+	rows, err := c.Query(ctx, q("timeline_facts"), p)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -549,10 +473,7 @@ ORDER BY f.valid_from`, p)
 	for _, r := range rows {
 		facts = append(facts, Fact{ID: Str(r[0]), Subject: Str(r[1]), Text: Str(r[2]), Trust: Str(r[3]), ValidFrom: Int(r[4]), ValidTo: Int(r[5])})
 	}
-	edges, err := c.edges(ctx, `
-MATCH (f:Fact)-[r:SUPERSEDES|DERIVED_FROM]->(:Fact)
-WHERE size($words) = 0 OR any(w IN $words WHERE toLower(f.text) CONTAINS w OR f.subject_lc CONTAINS w)
-`+edgeReturn, p)
+	edges, err := c.edges(ctx, q("timeline_edges"), p)
 	return facts, edges, err
 }
 
@@ -569,15 +490,7 @@ func (c *Client) RecordValues(session, tool string, hashes []string, sensitive b
 	}
 	params := map[string]any{"session": session, "tool": tool, "hashes": hashes, "sensitive": sensitive, "trust": trust, "rank": TrustRank[trust]}
 	c.enqueue(func(ctx context.Context) error {
-		return c.Exec(ctx, `
-MATCH (:Session {id:$session})-[:MADE]->(k:Call {tool:$tool})
-WITH k ORDER BY k.ts DESC LIMIT 1
-UNWIND $hashes AS h
-MERGE (v:Value {hash:h})
-ON CREATE SET v.sensitive = $sensitive, v.trust = $trust, v.trust_rank = $rank
-ON MATCH SET v.sensitive = v.sensitive OR $sensitive,
-             v.trust_rank = CASE WHEN $rank < v.trust_rank THEN $rank ELSE v.trust_rank END
-MERGE (k)-[:READ]->(v)`, params)
+		return c.Exec(ctx, q("record_values"), params)
 	})
 }
 
@@ -598,11 +511,7 @@ func (c *Client) Flows(ctx context.Context, hashes []string) ([]ValueHit, error)
 	if len(hashes) == 0 {
 		return nil, nil
 	}
-	rows, err := c.Query(ctx, `
-MATCH (s:Session)-[:MADE]->(k:Call)-[:READ]->(v:Value)
-WHERE v.hash IN $hashes
-RETURN v.hash, v.sensitive, v.trust_rank, s.id, k.tool, k.ts
-ORDER BY k.ts`, map[string]any{"hashes": hashes})
+	rows, err := c.Query(ctx, q("value_flows"), map[string]any{"hashes": hashes})
 	if err != nil {
 		return nil, err
 	}
@@ -623,7 +532,7 @@ ORDER BY k.ts`, map[string]any{"hashes": hashes})
 // changed_at, which revokes every agent's earned trust in it.
 func (c *Client) RecordToolVersion(ctx context.Context, tool, description string) (changed bool, err error) {
 	h := Hash("tool", description)
-	rows, err := c.Query(ctx, `MATCH (t:Tool {name:$tool}) RETURN t.version`, map[string]any{"tool": tool})
+	rows, err := c.Query(ctx, q("tool_version_current"), map[string]any{"tool": tool})
 	if err != nil {
 		return false, err
 	}
@@ -635,15 +544,7 @@ func (c *Client) RecordToolVersion(ctx context.Context, tool, description string
 		return false, nil
 	}
 	changed = prev != ""
-	err = c.Exec(ctx, `
-MERGE (t:Tool {name:$tool})
-CREATE (t)-[:HAS_VERSION]->(v:ToolVersion {hash:$hash, description:$desc, seen_at:$ts})
-SET t.version = $hash
-WITH t, v
-OPTIONAL MATCH (t)-[:HAS_VERSION]->(old:ToolVersion {hash:$prev})
-FOREACH (_ IN CASE WHEN old IS NULL THEN [] ELSE [1] END |
-  CREATE (v)-[:SUPERSEDES]->(old)
-  SET t.changed_at = $ts)`,
+	err = c.Exec(ctx, q("tool_version_record"),
 		map[string]any{"tool": tool, "hash": h, "desc": description, "prev": prev, "ts": time.Now().UnixNano()})
 	return changed, err
 }
@@ -659,12 +560,7 @@ type Drift struct {
 // (nothing was trusted under the old description), or it already called the
 // tool since the change.
 func (c *Client) ToolDrift(ctx context.Context, agent, tool string) (*Drift, error) {
-	rows, err := c.Query(ctx, `
-MATCH (t:Tool {name:$tool}) WHERE t.changed_at IS NOT NULL
-MATCH (t)-[:HAS_VERSION]->(cur:ToolVersion {hash:t.version})
-OPTIONAL MATCH (cur)-[:SUPERSEDES]->(old:ToolVersion)
-OPTIONAL MATCH (:Agent {id:$agent})-[:RAN]->(:Session)-[:MADE]->(k:Call {tool:$tool})
-RETURN t.changed_at, max(k.ts), old.description, cur.description`, map[string]any{"agent": agent, "tool": tool})
+	rows, err := c.Query(ctx, q("tool_drift"), map[string]any{"agent": agent, "tool": tool})
 	if err != nil || len(rows) == 0 {
 		return nil, err
 	}
@@ -707,9 +603,7 @@ type Digest struct {
 // since its last incident.
 func (c *Client) GetDigest(ctx context.Context, sinceNs, minClean int64) (Digest, error) {
 	d := Digest{Since: sinceNs, ByVerdict: map[string]int64{}, ByStage: map[string]int64{}, Autonomy: []Autonomy{}}
-	rows, err := c.Query(ctx, `
-MATCH (d:Decision) WHERE d.ts >= $since
-RETURN d.verdict, d.stage, d.model, d.graph_ms`, map[string]any{"since": sinceNs})
+	rows, err := c.Query(ctx, q("digest_decisions"), map[string]any{"since": sinceNs})
 	if err != nil {
 		return d, err
 	}
@@ -735,15 +629,7 @@ RETURN d.verdict, d.stage, d.model, d.graph_ms`, map[string]any{"since": sinceNs
 		d.GraphMSP50, d.GraphMSP95 = lat[len(lat)/2], lat[(len(lat)*95)/100]
 	}
 
-	rows, err = c.Query(ctx, `
-MATCH (a:Agent)-[:RAN]->(:Session)-[:MADE]->(k:Call)
-WITH a.id AS agent, k.repo AS repo, k.tool AS tool, k.caps AS caps, collect(k) AS ks
-OPTIONAL MATCH (t:Tool {name:tool})
-WITH agent, repo, tool, caps, ks, coalesce(t.changed_at, 0) AS changed
-WITH agent, repo, tool, caps, ks, reduce(m = changed, k IN ks | CASE WHEN k.decision <> 'ALLOW' AND k.ts > m THEN k.ts ELSE m END) AS last
-WITH agent, repo, tool, caps, size([k IN ks WHERE k.decision = 'ALLOW' AND k.ok = true AND k.ts > last]) AS clean
-WHERE clean >= $min
-RETURN agent, repo, tool, caps, clean ORDER BY clean DESC`, map[string]any{"min": minClean})
+	rows, err = c.Query(ctx, q("digest_autonomy"), map[string]any{"min": minClean})
 	if err != nil {
 		return d, err
 	}
@@ -759,10 +645,7 @@ RETURN agent, repo, tool, caps, clean ORDER BY clean DESC`, map[string]any{"min"
 // VerifyChain walks the mirrored decision chain: every decision that names a
 // predecessor must have a PREV edge to a node carrying exactly that hash.
 func (c *Client) VerifyChain(ctx context.Context) (links, broken int64, err error) {
-	rows, err := c.Query(ctx, `
-MATCH (d:Decision) WHERE d.prev_hash <> ''
-OPTIONAL MATCH (d)-[:PREV]->(p:Decision)
-RETURN count(d), sum(CASE WHEN p IS NULL OR p.hash <> d.prev_hash THEN 1 ELSE 0 END)`, nil)
+	rows, err := c.Query(ctx, q("verify_chain"), nil)
 	if err != nil || len(rows) == 0 {
 		return 0, 0, err
 	}

@@ -18,6 +18,7 @@ func main() {
 	rootCmd.AddCommand(graphSeedCmd())
 	rootCmd.AddCommand(hookCmd())
 	rootCmd.AddCommand(initCmd())
+	rootCmd.AddCommand(checkQueriesCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

@@ -63,7 +63,9 @@ That memory lets it do what a stateless filter cannot: grant autonomy from clean
 incident; stop a secret read in one session from leaving in another by having FalkorDB's `algo.maxFlow` compute the
 minimum cut of the call's influence network, redacting one argument when that is enough and blocking the call when it
 is not; notice when a tool did more than it said; name the single edge whose absence would have changed a verdict; and
-hand an insurer a hash-chained ledger with the graph evidence behind every decision.
+hand an insurer a hash-chained ledger with the graph evidence behind every decision. Because the memory is a graph, it
+can also be built from history that already exists (`vigil-cli reveal` replays your agent's local logs), attacked in
+public (the playground), and read as it stood at any past moment (time travel).
 
 <p align="center">
   <img src="docs/img/autonomy.png" width="90%" alt="VIGIL Autonomy page: decisions, model-free share, graph latency and earned autonomy read from the graph">
@@ -77,7 +79,8 @@ because everything else is a graph query: earned autonomy and its revocation (`e
 (`tool_drift`), cross-session exfiltration (`value_flows`) and the min cut that decides it (`algo.maxFlow` in
 `cut_compute`), the hidden-effect diff (`effect_diff`), the counterfactual "why?" (`why_paths`), typosquat, blast radius
 and maintainer PageRank, herd immunity (`threat_intel`), identity resolution, fact authority and abstention, the Agent
-Risk Score and the underwriting ledger, and scan-time reputation. **Remove the graph and VIGIL is a stateless pattern
+Risk Score and the underwriting ledger, scan-time reputation, the replay of your history (`reveal` builds its answer
+in the graph and reads it back), and time travel (`asof_subgraph`). **Remove the graph and VIGIL is a stateless pattern
 blocker like the rest.** `TestUnreachableGraphDegradesToNoGraph` checks that an unreachable graph degrades to exactly
 that and never decides a call by itself.
 
@@ -873,7 +876,8 @@ RETURN d.id ORDER BY d.ts DESC LIMIT 1
 
 Each beat is a command in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md), with the Cypher that fires. The replies below are
 the hook's own reasons from running that script end to end against FalkorDB 6.0.2. Beats 1 to 6 are the original
-demo; 7 and 8 are new.
+demo; 7 and 8 are new. The video runs reveal ([top](#try-it-in-60-seconds)), the playground (5.9) and time travel
+(5.10) first, then these beats compressed.
 
 | Beat | What happens | What VIGIL answers |
 |---|---|---|
@@ -1182,6 +1186,10 @@ not be the one you run. Sources are set with `VIGIL_CRAFTEDTRUST_URL` / `VIGIL_D
 
 Every view reads the graph directly; nothing on these pages is mocked.
 
+- **Decisions**: each stopped or rewritten call, its influence network with the cut in red, predicted vs observed
+  effects, and the **Why?** button
+- **Risk**: the Agent Risk Score per agent over time, and the Export Ledger button
+- **Reveal** and **Time Travel**: the pages the Go server serves at `/web/`, linked from the sidebar
 - **Autonomy**: earned trust, what was stopped and why, model-free share, graph latency, chain integrity
 - **Blast Radius**: the three package traversals the firewall runs on every install
 - **Ontology**: the identity and policy graph behind entity decisions
@@ -1363,11 +1371,12 @@ defaults). This is exactly what was run from a clean clone to produce docs/measu
 
 ```bash
 git clone <repo> clean && cd clean
-printf 'VIGIL_PORT=8097\nFALKORDB_PORT=6397\nFALKORDB_BROWSER_PORT=3097\n' > .env
+printf 'VIGIL_PORT=8097\nFALKORDB_PORT=6397\nFALKORDB_BROWSER_PORT=3097\nPLAYGROUND_PORT=8096\n' > .env
 docker compose -p vigilclean up -d --build
 docker compose -p vigilclean run --rm seed                                 # seeded tenant_default
-VIGIL_FALKORDB_URL=redis://localhost:6397 go run ./cmd/vigil-cli check-queries   # 54/54 queries executed without error
+VIGIL_FALKORDB_URL=redis://localhost:6397 go run ./cmd/vigil-cli check-queries   # 68/68 queries executed without error
 python3 scripts/measure.py --vigil http://localhost:8097 --falkordb localhost:6397 --out docs/measurements.md
+docker compose -p vigilclean --profile playground up -d --build             # playground on :8096; control API is 404 there
 ```
 
 Then:
@@ -1388,14 +1397,17 @@ Configuration lives in [`.env.example`](.env.example): `VIGIL_FALKORDB_URL`, `VI
 
 **Tests.** `go test ./...` runs the unit tests without a database; with `VIGIL_FALKORDB_URL=redis://localhost:6379`
 the live tests run against FalkorDB too (min cut, shadow execution, counterfactual, ledger tampering, risk, dry run vs
-real check, hook vs MCP verdicts, reputation, plus the original beats). Two tests need LLM API keys and skip without them.
+real check, hook vs MCP verdicts, reputation, reveal of a planted cross-session flow, every playground scenario, as-of
+queries, plus the original beats). The playground's tool layer is checked for imports that could do I/O, and the secret
+detector has a regression test built from the false positives reveal found. Two tests need LLM API keys and skip without
+them.
 
 ## 12. Tracks entered
 
 | Track | What VIGIL shows |
 |---|---|
-| **01 · Agents that act on connected data** | Every verdict is a traversal or a graph algorithm: FalkorDB's `algo.maxFlow` computes the min cut that redacts or blocks a call, `algo.pageRank` ranks maintainer risk, and a cross-session value path or an alias chain decides egress and sharing. Agents can ask before acting (`will_this_be_allowed`, `what_will_this_touch`, `why_was_this_blocked`), and every decision carries the path, and the edge that would have flipped it. |
-| **02 · Agent memory and coordination** | Episodic memory (`Call`, `Decision`, predicted and observed effects), semantic memory (`Fact` with validity and authority), procedural memory (earned trust per agent, repo and call shape). Persistent across restarts, separate per tenant, shared across tenants as hashes (`threat_intel`). |
+| **01 · Agents that act on connected data** | Every verdict is a traversal or a graph algorithm: FalkorDB's `algo.maxFlow` computes the min cut that redacts or blocks a call, `algo.pageRank` ranks maintainer risk, and a cross-session value path or an alias chain decides egress and sharing. Agents can ask before acting (`will_this_be_allowed`, `what_will_this_touch`, `why_was_this_blocked`), and every decision carries the path, and the edge that would have flipped it. The public playground draws that traversal and cut live, and every attempt is a graph write. |
+| **02 · Agent memory and coordination** | Episodic memory (`Call`, `Decision`, predicted and observed effects), semantic memory (`Fact` with validity and authority), procedural memory (earned trust per agent, repo and call shape). Persistent across restarts, separate per tenant, shared across tenants as hashes (`threat_intel`). `reveal` builds that memory from the session logs an agent already left on disk, and time travel reads it as it stood at any moment. |
 | **03 · Company brain** | The identity graph (Person · SAME_AS · IS_A · Policy DENIES EntityType) is consulted on every share-shaped call; the Agent Risk Score and the verifiable ledger turn the same graph into evidence a security team or an insurer can use. |
 
 ## Appendix A. The problem
@@ -1459,6 +1471,10 @@ And unlike most security tools, **VIGIL interrupts you less the longer it runs**
 - **Per-command trust granularity.** Trust is pooled per capability shape today; finer shapes for exec would be stricter.
 - **Triage → investigator → critic hand-off** through shared graph state.
 - **`npx vigil init`** wrapper around `vigil-cli init`.
+- **Per-shape trust counters.** Earned trust is counted by scanning history today, which is why a long replay slows down
+  (see limitations); a counter node per agent, repo and call shape, updated on each outcome, makes it constant time.
+- **A hosted playground URL.** The Fly.io and Railway configs are in [deploy/playground](deploy/playground); it has not
+  been deployed yet.
 - **A tool-description feed.** Claude Code hooks don't carry MCP descriptions; a gateway would post `tools/list` to `/vigil/tools`.
 
 ## Author

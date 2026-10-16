@@ -1249,8 +1249,8 @@ reads the results back from the graph.
 
 | Measured | Result |
 |---|---|
-| Decision latency, `PreToolUse` hook round trip (client-side, localhost) | **p50 3.22 ms, p99 6.39 ms** (399 calls) |
-| Graph time per decision (server-side, `Decision.graph_ms`) | **p50 0.60 ms, p99 2.04 ms** (398 decisions) |
+| Decision latency, `PreToolUse` hook round trip (client-side, localhost) | **p50 3.38 ms, p99 8.48 ms** (399 calls) |
+| Graph time per decision (server-side, `Decision.graph_ms`) | **p50 0.60 ms, p99 2.08 ms** (398 decisions) |
 | Decisions resolved without a model call | **399 of 399**: no model was configured, so this is 100% by construction. The informative number: **0 of 399** would have gone to a model if one were configured |
 | Abstention accuracy (fabricated subjects must return zero rows) | **200 of 200** lookups of 50 fabricated subjects through `facts`, `entity_policy`, `blast_typosquats`, `blast_dependents` returned zero rows; the seeded control subjects returned rows |
 | False-block rate on the benign set | **0 of 390** denied, 0 paused for a human; 270 allowed by earned autonomy, 120 left to the normal prompt |
@@ -1311,7 +1311,7 @@ was added since then:
 | Oct 16 | [`scripts/measure.py`](scripts/measure.py), [docs/measurements.md](docs/measurements.md), [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | `3b6d8e1`, `220c01c` |
 | Oct 16 | [`internal/reveal/`](internal/reveal) (Claude Code, Codex, Gemini CLI log readers and the replay), `vigil-cli reveal`, [`internal/web/`](internal/web) (the reveal page and the shared renderer), the secret-detector fix reveal surfaced | `4d410f7` |
 | Oct 16 | [`internal/playground/`](internal/playground) and its no-I/O tool layer [`sim/`](internal/playground/sim), hosted mode, the compose profile, [deploy/playground](deploy/playground) | `ffcba95` |
-| Oct 16 | [`internal/graph/timeline.go`](internal/graph/timeline.go), the as-of queries, `/web/timeline.html` | this commit |
+| Oct 16 | [`internal/graph/timeline.go`](internal/graph/timeline.go), the as-of queries, `/web/timeline.html` | `9e7be93` |
 
 ## 9. AI-assistance disclosure
 

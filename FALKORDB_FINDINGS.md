@@ -66,6 +66,75 @@ RETURN x.name, p.name
 
 ---
 
+## F3 · 6.0.2: `algo.maxFlow` accepts exactly one relationship type, though the docs describe an array
+
+**Status:** open (docs/engine mismatch). **Also in 4.22.1** (`'relationshipTypes' should contain a single string`), so not a regression. The [docs](https://docs.falkordb.com/algorithms/maxflow) list
+`relationshipTypes` as an *Array* "of relationship types that define the edges of the flow network".
+
+```cypher
+CREATE (s:N)-[:A {cap:1}]->(m:N)-[:B {cap:1}]->(t:N)
+```
+```cypher
+MATCH (s:N), (t:N) WHERE NOT ()-->(s) AND NOT (t)-->()
+CALL algo.maxFlow({sourceNodes:[s], targetNodes:[t], capacityProperty:'cap', relationshipTypes:['A','B']})
+YIELD maxFlow RETURN maxFlow
+```
+
+6.0.2 returns: **`algo.maxFlow: 'relationshipTypes' is required and must contain exactly one type`**.
+
+**How VIGIL handles it.** Every edge of a decision's influence network has the single type `:FLOW`, with the
+role in a `kind` property (`source`, `read`, `taints`, `arg`, `terminal`).
+See [`cut_build.cypher`](internal/graph/queries/cut_build.cypher).
+
+---
+
+## F4 · 6.0.2: `algo.maxFlow` refuses parallel edges of its type *anywhere in the graph*
+
+**Status:** open. **Also in 4.22.1** (`relationship type must not contain multi-edges (tensors)`), so not a regression. The error names the whole relationship type, not the source-to-sink subgraph; the same query on a graph without the unreachable parallel pair returns `maxFlow 1`.
+
+```cypher
+CREATE (a:N {n:'a'})-[:F {cap:1}]->(b:N {n:'b'}), (a)-[:F {cap:1}]->(b),
+       (s:N {n:'s'})-[:F {cap:1}]->(t:N {n:'t'})
+```
+```cypher
+MATCH (s:N {n:'s'}), (t:N {n:'t'})
+CALL algo.maxFlow({sourceNodes:[s], targetNodes:[t], capacityProperty:'cap', relationshipTypes:['F']})
+YIELD maxFlow RETURN maxFlow
+```
+
+6.0.2 returns: **`algo.maxFlow: relationship type 'F' contains multi-edges; maxFlow requires a simple adjacency matrix`**,
+even though `a→b` is unreachable from `s`. A flow network that shares nodes across calls, or any graph with one
+parallel pair of that type, can't be used.
+
+**How VIGIL handles it.** Each decision's network gets its own proxy nodes (`FlowRead`, `FlowValue`) linked to the real
+`Call` and `Value` by `COPY_OF`, so no two `:FLOW` edges ever join the same pair of nodes. The committed provenance
+stays one `COPY_OF` hop away, which the counterfactual query walks.
+
+---
+
+## F5 · Doubled-backtick escape in a quoted name is not parsed (6.0.2 and 4.22.1)
+
+**Status:** open. openCypher escapes a backtick inside a backtick-quoted name by doubling it.
+
+```cypher
+RETURN keys({`odd key```:1})
+```
+
+| Version | Result |
+|---|---|
+| 6.0.2 | `Invalid input '``': expected ':'` |
+| 4.22.1 | `Invalid input '`': expected ':'` |
+
+The same key as a query parameter (`CYPHER m={`odd key```:1} RETURN keys($m)`) fails with
+`Failed to parse the value of parameter 'm'`. Backtick-quoted names *without* an inner backtick work
+(`{`odd key`:1}` returns `[odd key]`).
+
+**Impact on VIGIL:** none in practice. The only maps VIGIL sends as parameters have its own keys (`key`,
+`hashes`). The encoder still emits the spec form ([`graph.go`](internal/graph/graph.go) `mapKey`), so a key containing
+a backtick would be rejected by FalkorDB with an error rather than silently mangled.
+
+---
+
 ## Observations (not bugs)
 
 - **O1 · PageRank scale differs between versions.** On the same 3-node graph, 4.22.1 returns scores that don't sum

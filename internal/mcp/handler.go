@@ -129,6 +129,9 @@ type FirewallVerdict struct {
 	Decision     string // ALLOW | PAUSE | BLOCK | FALLBACK
 	Reason       string
 	Message      string // agent-facing text when not allowed
+	// Args, when set, replaces the call's arguments: the firewall allowed a
+	// rewritten call (its min cut redacted tainted arguments).
+	Args map[string]any
 }
 
 // FirewallFn decides whether a tool call may proceed.
@@ -392,6 +395,9 @@ func (s *MCPServer) handleToolsCall(ctx context.Context, id json.RawMessage, par
 				"demo":      session.Demo,
 			})
 			return NewResponse(id, NewErrorResult(v.Message))
+		}
+		if v.Args != nil {
+			req.Arguments = v.Args // run the call the firewall allowed, not the one asked for
 		}
 	}
 

@@ -66,6 +66,9 @@ function toGraphData(ctx: GraphContext | undefined): { nodes: GraphNode[]; links
   return { nodes: [...nodes.values()], links }
 }
 
+// isCut: a min-cut edge's label ends in "CUT" (see graph.FlowTriplets).
+const isCut = (l: object) => String((l as { label?: unknown }).label ?? '').includes('CUT')
+
 const TYPE_COLORS: Record<string, string> = {
   CONCEPT: '#ff6b00',
   PERSON: '#3d4a52',
@@ -114,7 +117,10 @@ export function EntityGraph({ graphContext, height = 420 }: { graphContext: Grap
         nodeLabel={(n: any) => `${n.name}${n.type ? ` (${n.type})` : ''}`}
         nodeColor={(n: any) => TYPE_COLORS[n.type] || '#ff6b00'}
         nodeRelSize={4}
-        linkColor={() => 'rgba(20,16,13,0.25)'}
+        // A min-cut edge (label ends in "CUT") is drawn red and thick: it is the
+        // edge FalkorDB's max-flow severed.
+        linkColor={(l: object) => (isCut(l) ? '#dc2626' : 'rgba(20,16,13,0.25)')}
+        linkWidth={(l: object) => (isCut(l) ? 3 : 1)}
         linkDirectionalArrowLength={4}
         linkDirectionalArrowRelPos={1}
         linkLabel={(l: any) => l.label}

@@ -67,6 +67,14 @@ func hookReply(decision, reason string) map[string]any {
 	}}
 }
 
+// hookRewrite allows the call with its input replaced (Claude Code applies
+// updatedInput before the tool runs).
+func hookRewrite(reason string, input map[string]any) map[string]any {
+	out := hookReply("allow", reason)
+	out["hookSpecificOutput"].(map[string]any)["updatedInput"] = input
+	return out
+}
+
 // textOf flattens a tool response to the text an agent actually saw.
 func textOf(v any) string {
 	var b strings.Builder
@@ -148,6 +156,12 @@ func (st *stack) registerHookRoutes(api *mux.Router, budgetLimit float64, ownToo
 		case firewall.Pause:
 			writeJSON(w, http.StatusOK, hookReply("ask", "Vigil: "+res.Reason))
 		default:
+			if len(res.RedactTokens) > 0 {
+				// FalkorDB's min cut severed only some arguments: run the call
+				// with those values redacted, in Claude Code's own argument names.
+				writeJSON(w, http.StatusOK, hookRewrite("Vigil: "+res.Reason, firewall.Redact(in.ToolInput, res.RedactTokens)))
+				return
+			}
 			// Allowed is not the same as autonomous: skip the human prompt
 			// only when this agent has earned it for this exact shape of call
 			// in this repo. Otherwise Claude Code asks as it normally would.

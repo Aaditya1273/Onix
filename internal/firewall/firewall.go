@@ -43,6 +43,7 @@ const (
 	StageExfil        = "exfiltration"
 	StageProvenance   = "provenance"
 	StageToolDrift    = "tool_drift"
+	StageRedact       = "redact"
 	StageJudge        = "judge"
 	StageDefault      = "default"
 )
@@ -63,6 +64,8 @@ type Call struct {
 
 // Result is a decision plus everything needed to explain and audit it.
 type Result struct {
+	// ID identifies the call and its Decision node in the graph.
+	ID        string   `json:"id"`
 	Decision  Decision `json:"decision"`
 	Stage     string   `json:"stage"`
 	Reason    string   `json:"reason"`
@@ -95,6 +98,12 @@ type Result struct {
 	GraphQueried bool `json:"graph_queried"`
 	// GraphMS is the time this decision spent in graph queries.
 	GraphMS float64 `json:"graph_ms"`
+	// Cut is the min cut FalkorDB computed over this call's influence network,
+	// when tainted values reached its arguments.
+	Cut *graph.Cut `json:"cut,omitempty"`
+	// RedactTokens are the literal tainted values a redact cut removes. Never
+	// serialized: they are the secrets.
+	RedactTokens []string `json:"-"`
 	// egress are hashes of known values this call's arguments carried.
 	egress []string
 	// sig identifies the exact call for loop detection.
@@ -213,6 +222,7 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 		Cost:      c.ToolCost,
 		At:        time.Now(),
 	}
+	res.ID = fmt.Sprintf("%s-%d", c.SessionID, res.At.UnixNano())
 
 	// --- 1. Declared intent, graph-adjudicated when uncertain -----------------
 	verdict := pol.Evaluate(c.Tool, c.Args)
@@ -298,17 +308,23 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 	}
 
 	// --- 2d. Values flowing across calls and sessions -------------------------
-	d, stage, reason, egress, gf := f.checkFlows(ctx, c, caps)
+	fv, gf := f.checkFlows(ctx, c, caps, res.ID)
 	res.addGraph(gf)
-	if d != "" {
-		res.Decision, res.Stage, res.Reason, res.egress = d, stage, reason, egress
-		if d == Block {
-			res.Message = "Vigil blocked this call: " + reason
+	res.egress = fv.egress
+	if !fv.cut.Empty() {
+		cut := fv.cut
+		res.Cut = &cut
+	}
+	if fv.decision != "" {
+		res.Decision, res.Stage, res.Reason = fv.decision, fv.stage, fv.reason
+		if fv.decision == Block {
+			res.Message = "Vigil blocked this call: " + fv.reason
 		} else {
-			res.Message = "Vigil paused this session for review: " + reason
+			res.Message = "Vigil paused this session for review: " + fv.reason
 		}
 		return f.finish(ctx, span, sess, res)
 	}
+	res.RedactTokens = fv.redactTokens
 
 	// --- 3. Cost forecast ----------------------------------------------------
 	// Forecast the charge this call *would* incur, not the one already spent —
@@ -601,6 +617,11 @@ func (f *Firewall) DropSession(id string) {
 // finish records the decision to telemetry, the audit chain, and the recent
 // ring, then returns it. Every decision passes through here, including ALLOW.
 func (f *Firewall) finish(ctx context.Context, span telemetry.Span, sess *Session, res Result) Result {
+	if res.Decision == Allow && res.Cut != nil && len(res.Cut.Redact) > 0 {
+		res.Stage = StageRedact
+		res.Reason = fmt.Sprintf("allowed after redacting %s: FalkorDB's min cut over this call's influence network (cost %d) severs only those arguments",
+			strings.Join(res.Cut.Redact, ", "), res.Cut.MaxFlow)
+	}
 	telemetry.RecordDecision(span, string(res.Decision), res.Stage, res.Reason, res.RuleName, res.RiskScore, res.ModelUsed)
 
 	// Record refused attempts in the behavioral history (but never charge for
@@ -645,9 +666,10 @@ func (f *Firewall) finish(ctx context.Context, span telemetry.Span, sess *Sessio
 	// Every decision becomes graph history: the evidence trust is earned
 	// from, and the hash chain mirrored as (:Decision)-[:PREV]->(:Decision).
 	f.deps.Graph.RecordCall(graph.CallRecord{
-		ID:    fmt.Sprintf("%s-%d", res.SessionID, res.At.UnixNano()),
+		ID:    res.ID,
 		Agent: res.Agent, Session: res.SessionID, Tool: res.Tool, Caps: res.Caps, Repo: res.Repo,
 		Model: res.ModelUsed, GraphMS: res.GraphMS, Egress: res.egress,
+		CutEdges: cutEdges(res.Cut), CutCost: cutCost(res.Cut), Paths: res.GraphPaths,
 		Decision: string(res.Decision), Stage: res.Stage, Reason: res.Reason,
 		Hash: hash, PrevHash: prevHash, At: res.At,
 	})
@@ -714,4 +736,18 @@ func callSignature(tool string, args map[string]any) string {
 	raw, _ := json.Marshal(args) // map keys marshal sorted, so this is stable
 	sum := sha256.Sum256(raw)
 	return tool + "#" + hex.EncodeToString(sum[:8])
+}
+
+func cutEdges(c *graph.Cut) []string {
+	if c == nil {
+		return nil
+	}
+	return c.Edges()
+}
+
+func cutCost(c *graph.Cut) int64 {
+	if c == nil {
+		return 0
+	}
+	return c.MaxFlow
 }

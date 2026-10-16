@@ -420,6 +420,66 @@ RETURN startNode(r).name, labels(startNode(r))[0], type(r), endNode(r).name, lab
 ```
 </details>
 
+## The database computes the cut
+
+[PACE (arXiv 2610.01349)](https://arxiv.org/abs/2610.01349) showed that the right decision rule for an agent call is
+path confinement: build the influence network from untrusted or sensitive sources to the dangerous effect, and sever it
+along its **minimum cut**. PACE builds that network in-process and forgets it when the episode ends. VIGIL builds it
+**in FalkorDB**, over provenance that persists across sessions, and lets **FalkorDB's `algo.maxFlow`** compute it.
+
+**The rule.** When a call's arguments carry a value the graph knows is tainted (a secret any session read, or content
+fetched from outside headed into a shell), VIGIL writes that call's influence network into the graph:
+
+```
+source ─∞─▶ read_file @ session-3 ─∞─▶ value#5246… ─∞─▶ arg: txt ─2─▶ effect: dns_update ─(2n−1)─▶ sink
+                                                         arg: ttl ─2─▶
+                                                         arg: record ─2─▶
+```
+
+Committed edges are effectively infinite; severing one argument costs **2**; blocking the call costs **2n − 1** for a
+call with *n* arguments. FalkorDB returns the max flow, and by max-flow/min-cut that is the cut's cost. The capacities
+make the cut readable from that number alone:
+
+| Max flow from FalkorDB | Cut | Verdict |
+|---|---|---|
+| 0 | none | allow |
+| even (2k, k < n) | exactly the k tainted argument edges | **redact** those arguments, allow the rewritten call |
+| odd (2n − 1) | the terminal edge (every argument was tainted) | **block** (a secret) or **ask** (external content only) |
+
+Redaction is real: over MCP the tool runs with the rewritten arguments, and through Claude Code the hook answers
+`allow` with `updatedInput`, which Claude Code applies before the tool runs. The cut is stored on the Decision node
+(`cut_edges`, `cut_cost`), and the network stays in the graph for the dashboard and the counterfactual.
+
+```cypher
+// internal/graph/queries/cut_compute.cypher
+MATCH (src:FlowSource {call:$call}), (sink:FlowSink {call:$call})
+CALL algo.maxFlow({sourceNodes:[src], targetNodes:[sink], capacityProperty:'cap', relationshipTypes:['FLOW']})
+YIELD edges, edgeFlows, maxFlow
+RETURN maxFlow, [i IN range(0, size(edges) - 1) | [edges[i].kind, coalesce(edges[i].key, ''), edgeFlows[i], edges[i].call]]
+```
+
+The network is built by [`cut_build.cypher`](internal/graph/queries/cut_build.cypher). FalkorDB's max-flow takes
+exactly one relationship type and refuses parallel edges of it anywhere in the graph, so every network edge is `:FLOW`
+with a `kind`, and each call gets its own proxy nodes linked to the real `Call` and `Value` by `COPY_OF`
+([FALKORDB_FINDINGS F3, F4](FALKORDB_FINDINGS.md)).
+
+<p align="center">
+  <img src="docs/img/min-cut.png" width="85%" alt="Decisions page: the influence network of an mcp__dns__update call with the arg: txt edge cut in red">
+  <br><sub>A real decision: the cut (red) severs only <code>arg: txt</code>, so the call ran with that argument redacted.</sub>
+</p>
+
+**Demo beat 7**, verbatim from the hook (session 3 had read `DNS_API_TOKEN=…` from `.env`):
+
+```text
+mcp__dns__update {record, txt: <token>, ttl}
+→ ALLOW: allowed after redacting txt: FalkorDB's min cut over this call's influence network (cost 2) severs only those arguments
+  updatedInput: {"record":"_acme.api.example.com","ttl":"300","txt":"[REDACTED by VIGIL]"}
+
+mcp__dns__update {txt: <token>, note: "token=<token>"}
+→ DENY: a sensitive value read by read_file in session cc-s3 is in this mcp__dns__update call's arguments;
+        every argument carries it, so the min cut (cost 3) severs the call itself
+```
+
 ## 10. The dashboard
 
 <table><tr>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -108,54 +109,159 @@ func egressCapable(tool string, caps []string) bool {
 	return hasCap(caps, policy.CatNetwork) || hasCap(caps, policy.CatExec) || !policy.KnownTool(tool)
 }
 
+// flowVerdict is what the value-flow stage decided, from FalkorDB's cut.
+type flowVerdict struct {
+	decision     Decision // "" when the call may proceed (no cut, or a redact cut)
+	stage        string
+	reason       string
+	egress       []string // hashes of sensitive values the call carried
+	cut          graph.Cut
+	redactTokens []string // the literal tainted values to scrub from a redacted call
+}
+
 // checkFlows matches the values in a call's arguments against everything the
-// tenant has read, in any session. A sensitive value headed somewhere it can
-// leave blocks; a URL from external content headed into a shell pauses for a
-// human (an EXTERNAL-authority value cannot authorize an exec).
-func (f *Firewall) checkFlows(ctx context.Context, c Call, caps []string) (d Decision, stage, reason string, egress []string, gf graphFinding) {
+// tenant has read, in any session. If any sensitive value is headed somewhere
+// it can leave, or external content is headed into a shell, the decision is
+// FalkorDB's: VIGIL builds the call's influence network and the min cut of
+// that network (algo.maxFlow) says what to do. A terminal cut blocks (or, for
+// external content only, asks a human); an argument cut redacts exactly those
+// arguments and lets the rewritten call through.
+func (f *Firewall) checkFlows(ctx context.Context, c Call, caps []string, callID string) (fv flowVerdict, gf graphFinding) {
 	if !f.deps.Graph.Configured() || !egressCapable(c.Tool, caps) {
-		return "", "", "", nil, gf
+		return fv, gf
 	}
-	toks := argTokens(c.Args)
-	if len(toks) == 0 {
-		return "", "", "", nil, gf
+	keys := make([]string, 0, len(c.Args))
+	for k := range c.Args {
+		keys = append(keys, k)
 	}
+	sort.Strings(keys)
+	perArg := map[string][]string{} // arg key -> its tokens
+	byHash := map[string]string{}   // hash -> literal token
+	var all []string
+	for _, k := range keys {
+		toks := argTokens(map[string]any{k: c.Args[k]})
+		perArg[k] = toks
+		for _, t := range toks {
+			byHash[valueHash(t)] = t
+		}
+		all = append(all, toks...)
+	}
+	if len(all) == 0 {
+		return fv, gf
+	}
+
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, graphTimeout)
 	defer cancel()
-	hits, err := f.deps.Graph.Flows(ctx, hashAll(toks))
-	gf.ms = msSince(start)
+	defer func() { gf.ms = msSince(start) }()
+	hits, err := f.deps.Graph.Flows(ctx, hashAll(all))
 	if err != nil {
 		f.warnGraph(ctx, "value flow lookup", err)
-		return "", "", "", nil, gf
+		return fv, gf
 	}
 	gf.queried = true
-	for _, h := range hits {
+
+	// Which values may not reach this call: secrets anywhere they can leave,
+	// external content only into a shell.
+	exec := hasCap(caps, policy.CatExec)
+	tainted := map[string]bool{}
+	sensitive := false
+	var first *graph.ValueHit
+	for i, h := range hits {
 		gf.paths = append(gf.paths, fmt.Sprintf("session %s --[READ by %s]--> value#%s --[ARG_CONTAINS]--> %s", h.Session, h.Tool, h.Hash[:12], c.Tool))
-	}
-	for _, h := range hits {
-		if h.Sensitive {
-			egress = append(egress, h.Hash)
-		}
-	}
-	if len(egress) > 0 {
-		h := hits[0]
-		for _, x := range hits {
-			if x.Sensitive {
-				h = x
-				break
+		if h.Sensitive || (exec && h.TrustRank == int64(graph.TrustRank["EXTERNAL"])) {
+			tainted[h.Hash] = true
+			if h.Sensitive {
+				sensitive = true
+				fv.egress = append(fv.egress, h.Hash)
 			}
-		}
-		return Block, StageExfil, fmt.Sprintf("a sensitive value read by %s in session %s is in this %s call's arguments", h.Tool, h.Session, c.Tool), egress, gf
-	}
-	if hasCap(caps, policy.CatExec) {
-		for _, h := range hits {
-			if h.TrustRank == int64(graph.TrustRank["EXTERNAL"]) {
-				return Pause, StageProvenance, fmt.Sprintf("this command carries content fetched from outside by %s in session %s; external content cannot authorize a shell command", h.Tool, h.Session), []string{h.Hash}, gf
+			if first == nil || (h.Sensitive && !first.Sensitive) {
+				first = &hits[i]
 			}
 		}
 	}
-	return "", "", "", nil, gf
+	if len(tainted) == 0 {
+		return fv, gf
+	}
+
+	args := make([]graph.CutArg, 0, len(keys))
+	for _, k := range keys {
+		a := graph.CutArg{Key: k}
+		for _, h := range hashAll(perArg[k]) {
+			if tainted[h] {
+				a.Hashes = append(a.Hashes, h)
+			}
+		}
+		args = append(args, a)
+	}
+	cut, err := f.deps.Graph.ComputeCut(ctx, callID, c.Tool, args)
+	if err != nil {
+		// Fail closed on a secret; external content only pauses.
+		f.warnGraph(ctx, "min-cut", err)
+		fv.decision, fv.stage = Pause, StageProvenance
+		if sensitive {
+			fv.decision, fv.stage = Block, StageExfil
+		}
+		fv.reason = "a tainted value is in this call's arguments and the cut could not be computed: " + err.Error()
+		return fv, gf
+	}
+	fv.cut = cut
+	gf.paths = append(gf.paths, fmt.Sprintf("FalkorDB algo.maxFlow over %s's influence network = %d; cut: %s", c.Tool, cut.MaxFlow, strings.Join(cut.Edges(), ", ")))
+
+	origin := fmt.Sprintf("%s in session %s", first.Tool, first.Session)
+	switch {
+	case cut.Terminal && sensitive:
+		fv.decision, fv.stage = Block, StageExfil
+		fv.reason = fmt.Sprintf("a sensitive value read by %s is in this %s call's arguments; every argument carries it, so the min cut (cost %d) severs the call itself", origin, c.Tool, cut.MaxFlow)
+	case cut.Terminal:
+		fv.decision, fv.stage = Pause, StageProvenance
+		fv.reason = fmt.Sprintf("this command carries content fetched from outside by %s; external content cannot authorize a shell command (min cut cost %d severs the call)", origin, cut.MaxFlow)
+	default:
+		for _, k := range cut.Redact {
+			for _, t := range perArg[k] {
+				if tainted[valueHash(t)] {
+					fv.redactTokens = append(fv.redactTokens, byHash[valueHash(t)])
+				}
+			}
+		}
+	}
+	return fv, gf
+}
+
+// Redacted is the placeholder a cut argument's tainted values become.
+const Redacted = "[REDACTED by VIGIL]"
+
+// Redact returns a deep copy of args with every occurrence of the given
+// literal values replaced, in any string at any depth. Used to rewrite a call
+// to what the min cut allows.
+func Redact(args map[string]any, values []string) map[string]any {
+	var walk func(any) any
+	walk = func(v any) any {
+		switch x := v.(type) {
+		case string:
+			for _, val := range values {
+				if val != "" {
+					x = strings.ReplaceAll(x, val, Redacted)
+				}
+			}
+			return x
+		case map[string]any:
+			out := make(map[string]any, len(x))
+			for k, e := range x {
+				out[k] = walk(e)
+			}
+			return out
+		case []any:
+			out := make([]any, len(x))
+			for i, e := range x {
+				out[i] = walk(e)
+			}
+			return out
+		}
+		return v
+	}
+	out, _ := walk(args).(map[string]any)
+	return out
 }
 
 // checkToolDrift pauses the first call an agent makes to a tool whose

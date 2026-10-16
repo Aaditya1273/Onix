@@ -288,3 +288,64 @@ func TestLiveRugPullPausesAndRevokesTrust(t *testing.T) {
 		t.Fatal("drift should pause once, not forever")
 	}
 }
+
+// Task 1: the database computes the cut. A secret read in session 3 reaches a
+// dns_update through one argument (redact it, allow the rewritten call), then
+// through every argument (block), and a clean call has no cut at all.
+func TestLiveMinCutRedactsBlocksOrAllows(t *testing.T) {
+	g := liveGraph(t, "mincut")
+	f := newGraphFirewall(t, g)
+	ctx := context.Background()
+	secret := fmt.Sprintf("sk-live-%d", time.Now().UnixNano())
+	read := firewall.Call{SessionID: "session-3", Agent: "claude-code", Tool: "read_file", Args: map[string]any{"path": ".env"}, Budget: 2}
+	f.Check(ctx, read)
+	f.Commit("session-3", "read_file", 0, time.Millisecond, true)
+	f.Observe("session-3", "read_file", read.Args, "STRIPE_KEY="+secret+"\n")
+	g.Flush()
+	call := func(args map[string]any) firewall.Result {
+		return f.Check(ctx, firewall.Call{SessionID: "session-7", Agent: "claude-code", Tool: "dns_update", Args: args, Budget: 2})
+	}
+
+	oneArg := map[string]any{"record": "api.acme.com", "txt": secret, "ttl": "300"}
+	redact := call(oneArg)
+	if redact.Decision != firewall.Allow || redact.Stage != firewall.StageRedact || redact.Cut == nil ||
+		redact.Cut.MaxFlow != 2 || len(redact.Cut.Redact) != 1 || redact.Cut.Redact[0] != "txt" {
+		t.Fatalf("one tainted argument should be a redact cut: %s/%s cut=%+v (%s)", redact.Decision, redact.Stage, redact.Cut, redact.Reason)
+	}
+	rewritten := firewall.Redact(oneArg, redact.RedactTokens)
+	if strings.Contains(fmt.Sprint(rewritten), secret) || rewritten["txt"] != firewall.Redacted || rewritten["record"] != "api.acme.com" {
+		t.Fatalf("rewritten call: %v", rewritten)
+	}
+
+	block := call(map[string]any{"txt": secret, "note": "key=" + secret})
+	if block.Decision != firewall.Block || block.Stage != firewall.StageExfil || block.Cut == nil || !block.Cut.Terminal || block.Cut.MaxFlow != graph.BlockCap(2) {
+		t.Fatalf("every tainted argument should be a block cut: %s/%s cut=%+v", block.Decision, block.Stage, block.Cut)
+	}
+
+	clean := call(map[string]any{"record": "api.acme.com", "txt": "hello-world-123", "ttl": "300"})
+	if clean.Decision != firewall.Allow || clean.Cut != nil {
+		t.Fatalf("a clean call has no cut: %s cut=%+v", clean.Decision, clean.Cut)
+	}
+
+	g.Flush()
+	for _, want := range []struct {
+		id    string
+		edges string
+		cost  int64
+	}{{redact.ID, "[arg:txt]", 2}, {block.ID, "[terminal]", 3}, {clean.ID, "[]", 0}} {
+		rows, err := g.Query(ctx, `MATCH (d:Decision {id:$id}) RETURN d.cut_edges, d.cut_cost`, map[string]any{"id": want.id})
+		if err != nil || len(rows) != 1 || fmt.Sprint(rows[0][0]) != want.edges || graph.Int(rows[0][1]) != want.cost {
+			t.Fatalf("decision %s stored cut %v, want %s/%d (err %v)", want.id, rows, want.edges, want.cost, err)
+		}
+	}
+	net, err := g.CutNetwork(ctx, redact.ID)
+	cutSeen := false
+	for _, e := range net {
+		if e.Cut && e.Kind == "arg" && e.From == "arg: txt" {
+			cutSeen = true
+		}
+	}
+	if err != nil || !cutSeen {
+		t.Fatalf("the persisted network should mark arg: txt as cut: %+v err=%v", net, err)
+	}
+}

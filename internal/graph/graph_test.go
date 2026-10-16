@@ -20,6 +20,14 @@ func TestParamsCannotEscapeTheirString(t *testing.T) {
 	}
 }
 
+func TestMapParamsRenderAsCypherMaps(t *testing.T) {
+	got := encodeParams(map[string]any{"args": []any{map[string]any{"key": "txt", "hashes": []any{"h"}, "odd key`": 1}}})
+	want := `CYPHER args=[{hashes:["h"],key:"txt",` + "`odd key```" + `:1}] `
+	if got != want {
+		t.Fatalf("\n got %s\nwant %s", got, want)
+	}
+}
+
 // live returns a client on a throwaway tenant graph, seeded, or skips.
 // Run with: VIGIL_FALKORDB_URL=redis://localhost:6379 go test ./...
 func live(t *testing.T) *Client {

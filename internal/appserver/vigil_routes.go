@@ -35,7 +35,12 @@ func (st *stack) mcpAdapter() (mcp.FirewallFn, mcp.CommitFn) {
 			SessionCost: in.SessionCost,
 			Budget:      in.Budget,
 		})
+		var args map[string]any
+		if res.Decision == firewall.Allow && len(res.RedactTokens) > 0 {
+			args = firewall.Redact(in.Args, res.RedactTokens)
+		}
 		return mcp.FirewallVerdict{
+			Args:         args,
 			Allow:        res.Decision == firewall.Allow,
 			BlockSession: res.Decision == firewall.Pause,
 			Decision:     string(res.Decision),
@@ -376,6 +381,7 @@ func (st *stack) registerRoutes(api *mux.Router, mcpServer *mcp.MCPServer, budge
 		})
 	}).Methods("GET", "OPTIONS")
 
+	st.registerDecisionRoutes(api)
 	st.registerGraphTools(mcpServer)
 	st.registerHookRoutes(api, budgetLimit, mcpServer.Tools())
 }

@@ -170,7 +170,9 @@ func (c *Client) EnsureSchema(ctx context.Context) error {
 		{"Agent", "id"}, {"Session", "id"}, {"Call", "id"}, {"Call", "tool"},
 		{"Tool", "name"}, {"Capability", "name"}, {"Decision", "hash"},
 		{"Package", "name"}, {"Maintainer", "name"}, {"Person", "name_lc"},
-		{"Policy", "name"}, {"Fact", "subject_lc"},
+		{"Policy", "name"}, {"Fact", "subject_lc"}, {"Decision", "id"},
+		{"FlowSource", "call"}, {"FlowSink", "call"}, {"Effect", "call"}, {"ArgSlot", "call"},
+		{"FlowValue", "call"}, {"FlowRead", "call"}, {"Value", "hash"},
 	}
 	for _, ix := range tenant {
 		if err := c.index(ctx, c.graph, ix[0], ix[1]); err != nil {
@@ -247,9 +249,38 @@ func literal(v any) string {
 			parts[i] = literal(e)
 		}
 		return "[" + strings.Join(parts, ",") + "]"
+	case map[string]any:
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		parts := make([]string, len(keys))
+		for i, k := range keys {
+			parts[i] = mapKey(k) + ":" + literal(x[k])
+		}
+		return "{" + strings.Join(parts, ",") + "}"
 	default:
 		return quote(fmt.Sprint(x))
 	}
+}
+
+// mapKey renders a map key: bare when it is an identifier, backtick-quoted
+// otherwise (backticks inside are doubled, as openCypher escapes them).
+// FalkorDB does not parse that escape (FALKORDB_FINDINGS F5), so such a key
+// fails loudly instead of being mangled; VIGIL's own keys never contain one.
+func mapKey(k string) string {
+	ident := k != ""
+	for i, r := range k {
+		if !(r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || i > 0 && r >= '0' && r <= '9') {
+			ident = false
+			break
+		}
+	}
+	if ident {
+		return k
+	}
+	return "`" + strings.ReplaceAll(k, "`", "``") + "`"
 }
 
 func quote(s string) string {

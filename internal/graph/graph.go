@@ -102,6 +102,11 @@ func (c *Client) Query(ctx context.Context, cypher string, params map[string]any
 	return c.run(ctx, c.graph, "GRAPH.RO_QUERY", cypher, params)
 }
 
+// Write runs a write on the tenant graph and returns its rows.
+func (c *Client) Write(ctx context.Context, cypher string, params map[string]any) (Rows, error) {
+	return c.run(ctx, c.graph, "GRAPH.QUERY", cypher, params)
+}
+
 // Exec runs a write on the tenant graph synchronously.
 func (c *Client) Exec(ctx context.Context, cypher string, params map[string]any) error {
 	_, err := c.run(ctx, c.graph, "GRAPH.QUERY", cypher, params)

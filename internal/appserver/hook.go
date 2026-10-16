@@ -137,6 +137,7 @@ func (st *stack) registerHookRoutes(api *mux.Router, budgetLimit float64, ownToo
 			st.fw.Commit(session, tool, 0, 0, ok)
 			if ok {
 				st.fw.Observe(session, tool, args, textOf(in.ToolResponse))
+				st.fw.ObserveEffects(session, tool, args, in.ToolResponse)
 			}
 			writeJSON(w, http.StatusOK, map[string]any{})
 			return

@@ -4,5 +4,5 @@ OPTIONAL MATCH (t:Tool {name:$tool})
 WITH coalesce(t.changed_at, 0) AS changed
 MATCH (:Agent {id:$agent})-[:RAN]->(:Session)-[:MADE]->(k:Call {tool:$tool, caps:$caps, repo:$repo})
 WITH changed, collect(k) AS ks
-WITH ks, reduce(m = changed, k IN ks | CASE WHEN k.decision <> 'ALLOW' AND k.ts > m THEN k.ts ELSE m END) AS last
-RETURN size([k IN ks WHERE k.decision = 'ALLOW' AND k.ok = true AND k.ts > last]), size(ks), last
+WITH ks, reduce(m = changed, k IN ks | CASE WHEN (k.decision <> 'ALLOW' OR k.hidden = true) AND k.ts > m THEN k.ts ELSE m END) AS last
+RETURN size([k IN ks WHERE k.decision = 'ALLOW' AND k.ok = true AND coalesce(k.hidden, false) = false AND k.ts > last]), size(ks), last

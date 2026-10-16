@@ -98,6 +98,9 @@ type Result struct {
 	GraphQueried bool `json:"graph_queried"`
 	// GraphMS is the time this decision spent in graph queries.
 	GraphMS float64 `json:"graph_ms"`
+	// Predicted is what the call is expected to touch (arguments + the tool's
+	// history); recorded for allowed calls and diffed against what it did.
+	Predicted []graph.EffectRef `json:"predicted_effects,omitempty"`
 	// Cut is the min cut FalkorDB computed over this call's influence network,
 	// when tainted values reached its arguments.
 	Cut *graph.Cut `json:"cut,omitempty"`
@@ -223,6 +226,7 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 		At:        time.Now(),
 	}
 	res.ID = fmt.Sprintf("%s-%d", c.SessionID, res.At.UnixNano())
+	res.Predicted = f.predict(ctx, c)
 
 	// --- 1. Declared intent, graph-adjudicated when uncertain -----------------
 	verdict := pol.Evaluate(c.Tool, c.Args)
@@ -373,6 +377,15 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 				tier = maxTier(tier, llm.TierSuspicious)
 			}
 		}
+	}
+
+	// Hidden side effects: this tool recently did things nobody predicted.
+	if n, gf := f.checkHiddenEffects(ctx, agent, c.Tool); n > 0 {
+		res.addGraph(gf)
+		signals = append(signals, "hidden_side_effect")
+		tier = maxTier(tier, llm.TierSuspicious)
+	} else {
+		res.addGraph(gf)
 	}
 
 	// Neither declared intent nor earned history covers this call: exactly
@@ -670,7 +683,8 @@ func (f *Firewall) finish(ctx context.Context, span telemetry.Span, sess *Sessio
 		Agent: res.Agent, Session: res.SessionID, Tool: res.Tool, Caps: res.Caps, Repo: res.Repo,
 		Model: res.ModelUsed, GraphMS: res.GraphMS, Egress: res.egress,
 		CutEdges: cutEdges(res.Cut), CutCost: cutCost(res.Cut), Paths: res.GraphPaths,
-		Decision: string(res.Decision), Stage: res.Stage, Reason: res.Reason,
+		Predicted: predictedIfAllowed(res),
+		Decision:  string(res.Decision), Stage: res.Stage, Reason: res.Reason,
 		Hash: hash, PrevHash: prevHash, At: res.At,
 	})
 
@@ -750,4 +764,11 @@ func cutCost(c *graph.Cut) int64 {
 		return 0
 	}
 	return c.MaxFlow
+}
+
+func predictedIfAllowed(res Result) []graph.EffectRef {
+	if res.Decision != Allow {
+		return nil
+	}
+	return res.Predicted
 }

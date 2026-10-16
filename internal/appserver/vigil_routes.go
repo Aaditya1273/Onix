@@ -52,6 +52,7 @@ func (st *stack) mcpAdapter() (mcp.FirewallFn, mcp.CommitFn) {
 		st.fw.Commit(sessionID, tool, cost, dur, ok)
 		if ok {
 			st.fw.Observe(sessionID, tool, args, output)
+			st.fw.ObserveEffects(sessionID, tool, args, firewall.ParseResponse(output))
 		}
 	}
 	return check, commit

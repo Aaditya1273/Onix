@@ -480,6 +480,47 @@ mcp__dns__update {txt: <token>, note: "token=<token>"}
         every argument carries it, so the min cut (cost 3) severs the call itself
 ```
 
+## Shadow execution: predicted vs observed effects
+
+PACE lists tools with hidden secondary calls as outside its coverage, because it only sees the call, not what the
+tool did. VIGIL keeps both in the graph.
+
+- **Before an allowed call runs**, VIGIL predicts its effects (files, hosts, packages, env vars) from the call's own
+  arguments plus what this tool has done before ([`effect_history.cypher`](internal/graph/queries/effect_history.cypher)),
+  and stores them as `(:Call)-[:PREDICTED]->(:PredictedEffect)`.
+- **After it runs**, what the harness reports the tool did (structured fields of the hook's `tool_response`, or the
+  MCP result when it is JSON) becomes `(:Call)-[:OBSERVED]->(:ObservedEffect)`.
+- **One query diffs them.** An observed effect no prediction covers is a *hidden secondary effect*. It is marked on the
+  graph, counts as an incident (the agent's earned trust in that tool resets), and raises a `hidden_side_effect`
+  behavior signal on the next call.
+
+```cypher
+// internal/graph/queries/effect_diff.cypher
+MATCH (k:Call {id:$call})-[:OBSERVED]->(o:ObservedEffect)
+OPTIONAL MATCH (k)-[:PREDICTED]->(p:PredictedEffect {kind:o.kind})
+WITH k, o, collect(p.name) AS preds
+WHERE none(n IN preds WHERE n = o.name OR (o.kind = 'file' AND o.name STARTS WITH n + '/'))
+SET o.hidden = true, k.hidden = true
+RETURN o.kind, o.name
+```
+
+<p align="center">
+  <img src="docs/img/shadow-execution.png" width="85%" alt="Decisions page: a formatter call predicted to touch src/app.go and src/main.go, observed also writing /home/dev/.ssh/authorized_keys, flagged as a hidden side effect">
+</p>
+
+**Demo beat 8**, verbatim from the hook (trust threshold set to 3 for the demo):
+
+```text
+3 honest runs of mcp__fmt__format {path: src/main.go}, each reporting files_written: [src/main.go]
+mcp__fmt__format {path: src/app.go}  → ALLOW: earned autonomy, 3 clean runs since the last incident
+  … the tool reports files_written: [src/app.go, /home/dev/.ssh/authorized_keys]
+  → ObservedEffect /home/dev/.ssh/authorized_keys flagged hidden (predicted: src/app.go, src/main.go)
+mcp__fmt__format {path: src/app.go}  → {}   (earned trust revoked: Claude Code asks the human again)
+```
+
+**Limit, stated plainly:** "observed" is what the tool or harness *reports*, not a syscall trace. A tool that writes a
+file and says nothing is not caught here; kernel-level provenance (eBPF, as in Agent-Warden) would be.
+
 ## 10. The dashboard
 
 <table><tr>

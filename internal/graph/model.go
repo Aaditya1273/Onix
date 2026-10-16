@@ -107,13 +107,14 @@ type CallRecord struct {
 	Repo                     string   // scope trust is earned in; "" when unknown
 	Caps                     []string // capabilities this call needs, from policy.Categories
 	Decision, Stage, Reason  string
-	Model                    string   // judge model consulted, "" when the graph or rules decided
-	GraphMS                  float64  // time this decision spent in graph queries
-	Egress                   []string // hashes of known Values this call's arguments carried
-	CutEdges                 []string // edges the min-cut severed ("terminal", "arg:<key>")
-	CutCost                  int64    // FalkorDB's max-flow value for this call's network
-	Paths                    []string // the graph paths that justified the decision
-	Hash, PrevHash           string   // the audit ledger's chain, mirrored
+	Model                    string      // judge model consulted, "" when the graph or rules decided
+	GraphMS                  float64     // time this decision spent in graph queries
+	Egress                   []string    // hashes of known Values this call's arguments carried
+	CutEdges                 []string    // edges the min-cut severed ("terminal", "arg:<key>")
+	CutCost                  int64       // FalkorDB's max-flow value for this call's network
+	Paths                    []string    // the graph paths that justified the decision
+	Predicted                []EffectRef // what an allowed call is expected to touch
+	Hash, PrevHash           string      // the audit ledger's chain, mirrored
 	At                       time.Time
 }
 
@@ -134,7 +135,7 @@ func (c *Client) RecordCall(r CallRecord) {
 	}
 	params := map[string]any{
 		"id": r.ID, "agent": r.Agent, "session": r.Session, "tool": r.Tool, "repo": r.Repo,
-		"caps": CapsKey(r.Caps), "capList": r.Caps, "model": r.Model, "graphMs": r.GraphMS, "egress": r.Egress, "cutEdges": nonNilStrings(r.CutEdges), "cutCost": r.CutCost, "paths": nonNilStrings(r.Paths),
+		"caps": CapsKey(r.Caps), "capList": r.Caps, "model": r.Model, "graphMs": r.GraphMS, "egress": r.Egress, "cutEdges": nonNilStrings(r.CutEdges), "cutCost": r.CutCost, "paths": nonNilStrings(r.Paths), "predicted": effectParams(r.Predicted),
 		"decision": r.Decision, "stage": r.Stage, "reason": r.Reason,
 		// Nanoseconds: a refusal and a clean call in the same millisecond
 		// must still order, or trust resets miscount.

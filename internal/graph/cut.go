@@ -170,6 +170,7 @@ type DecisionRow struct {
 	Reason   string   `json:"reason"`
 	CutEdges []string `json:"cut_edges"`
 	CutCost  int64    `json:"cut_cost"`
+	Hidden   bool     `json:"hidden_effect"` // the call did something its prediction did not cover
 }
 
 func (c *Client) RecentDecisions(ctx context.Context, limit int, all bool) ([]DecisionRow, error) {
@@ -181,6 +182,7 @@ func (c *Client) RecentDecisions(ctx context.Context, limit int, all bool) ([]De
 	for _, r := range rows {
 		d := DecisionRow{ID: Str(r[0]), TS: Int(r[1]), Agent: Str(r[2]), Session: Str(r[3]), Tool: Str(r[4]),
 			Verdict: Str(r[5]), Stage: Str(r[6]), Reason: Str(r[7]), CutEdges: []string{}, CutCost: Int(r[9])}
+		d.Hidden, _ = r[10].(bool)
 		if es, ok := r[8].([]any); ok {
 			for _, e := range es {
 				d.CutEdges = append(d.CutEdges, Str(e))

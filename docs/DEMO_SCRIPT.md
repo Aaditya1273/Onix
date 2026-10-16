@@ -1,11 +1,69 @@
-# VIGIL demo: eight beats
+# VIGIL demo script
 
-Every beat below is a command you can paste, the reply VIGIL gives, and the Cypher that fires to produce it. Replies
-are what the Claude Code hook prints: `deny`, `ask`, `allow` (earned autonomy, or `updatedInput` for a redaction), or
-`{}` (no objection; Claude Code prompts as usual). Every query file named here is in
+The video runs in this order: **reveal** (your own history), **playground** (try to get past it), **time travel**
+(what did it know, and when), then **the eight beats**, compressed. Every step is a command you can paste, with the
+reply VIGIL gives and the Cypher behind it. Every query file named here is in
 [`internal/graph/queries/`](../internal/graph/queries).
 
-## Setup
+## 1. Reveal: your agent's own history (first 20 seconds)
+
+```bash
+go run ./cmd/vigil-cli reveal                 # last 30 days; --since 7d is faster, --since all reads everything
+```
+
+With no `VIGIL_FALKORDB_URL` it starts a temporary FalkorDB 6.0.2 container on a loopback port (removed on Ctrl-C),
+reads `~/.claude/projects`, `~/.codex/sessions` and `~/.gemini/tmp`, replays every tool call through the firewall in the
+order it happened, prints one line, and opens `http://127.0.0.1:7777/web/reveal.html`:
+
+```text
+started a temporary FalkorDB 6.0.2 at 127.0.0.1:<port> (removed on exit)
+found <calls> tool calls in <files> claude-code file(s) (since <date>)
+replaying <done> / <calls> calls (<pct>%), <rate> calls/s
+<calls> tool calls across <sessions> sessions; <b> would have been blocked, <a> would have asked first, <r> rewritten; autonomy level <x>%. (replayed in <duration>)
+open http://127.0.0.1:7777/web/reveal.html  (Ctrl-C to stop)
+```
+
+The README's "Try it in 60 seconds" has the numbers from the author's own run.
+
+Show, one screen at a time: the call and session count; "N would have been stopped, here's the one that mattered" with
+its path drawn hop by hop and the counterfactual; the autonomy level and the call shapes that would already be
+auto-approved; the repeated-call spend estimate (or "not available"). Cypher: everything the live hook runs, plus
+[`reveal_totals`](../internal/graph/queries/reveal_totals.cypher), [`reveal_top`](../internal/graph/queries/reveal_top.cypher),
+[`reveal_spend`](../internal/graph/queries/reveal_spend.cypher), [`mark_autonomous`](../internal/graph/queries/mark_autonomous.cypher),
+[`session_stats`](../internal/graph/queries/session_stats.cypher).
+
+## 2. Playground: try to get past it
+
+```bash
+docker compose --profile playground up -d      # http://localhost:8090
+```
+
+Click **Cross-session exfiltration** (BLOCK, the cut drawn on the terminal edge), **Memory laundering** (PAUSE: the
+rule is TOOL but its authority is EXTERNAL), then **The bug that fooled us** with the toggle on (ALLOW, rewritten: the
+URL was cut) and off (BLOCK: destinations are uncuttable). Then type your own move in the box, using the key the page
+shows. Cypher: the live pipeline on the `playground` tenant, plus
+[`playground_attempt`](../internal/graph/queries/playground_attempt.cypher) and
+[`playground_stats`](../internal/graph/queries/playground_stats.cypher) for the counter.
+
+## 3. Time travel
+
+Open `/web/timeline.html` on the reveal page (Time travel button) or on the compose stack after the beats below
+(`http://localhost:8080/web/timeline.html`). Pick the exfiltration decision, press **Play**, stop on each moment, press
+**Why?**. Cypher: [`asof_subgraph`](../internal/graph/queries/asof_subgraph.cypher), one query per moment:
+
+```cypher
+MATCH (e:Call {id:$id})-[:ARG_CONTAINS]->(v:Value)<-[:READ]-(r:Call)
+WHERE r.ts <= $t
+RETURN r.id AS f, 'call' AS fk, 'READ' AS rel, 'value#' + left(v.hash, 12) AS t2, CASE WHEN v.sensitive THEN 'secret' ELSE 'value' END AS tl, 'value' AS tk, r.ts AS ts
+```
+
+## 4. The eight beats, compressed
+
+Replies are what the Claude Code hook prints: `deny`, `ask`, `allow` (earned autonomy, or `updatedInput` for a
+redaction), or `{}` (no objection; Claude Code prompts as usual). For the video, show beats 1, 2, 4 and 7 on screen
+and narrate 3, 5, 6 and 8 over their one-line replies.
+
+### Setup
 
 ```bash
 docker compose up -d && docker compose run --rm seed     # FalkorDB 6.0.2 + VIGIL on :8080, demo graph loaded
@@ -21,7 +79,7 @@ api()  { curl -s "$VIGIL_URL/api/v1/vigil$1" "${@:2}"; echo; }
 Open http://localhost:3000 (FalkorDB browser, graph `tenant_default`) to watch nodes appear, and the dashboard's
 Decisions and Risk pages (`cd frontend && npm run dev`).
 
-## Beat 1. Earned autonomy
+### Beat 1. Earned autonomy
 
 Twenty clean reads in `/repo` (the default `VIGIL_TRUST_THRESHOLD`), then the twenty-first skips the prompt. The same
 call in another repo has no history and prompts.
@@ -48,7 +106,7 @@ WITH ks, reduce(m = changed, k IN ks | CASE WHEN (k.decision <> 'ALLOW' OR k.hid
 RETURN size([k IN ks WHERE k.decision = 'ALLOW' AND k.ok = true AND coalesce(k.hidden, false) = false AND k.ts > last]), size(ks), last
 ```
 
-## Beat 2. A secret read in one session cannot leave in another
+### Beat 2. A secret read in one session cannot leave in another
 
 ```bash
 pre  a3 Read '{"file_path":"/repo/.env"}' >/dev/null
@@ -71,7 +129,7 @@ RETURN v.hash, v.sensitive, v.trust_rank, s.id, k.tool, k.ts
 ORDER BY k.ts
 ```
 
-## Beat 3. Rug pull
+### Beat 3. Rug pull
 
 ```bash
 api /tools -XPOST -d '[{"name":"mcp__dns__update","description":"Updates a DNS record."}]'
@@ -94,7 +152,7 @@ OPTIONAL MATCH (:Agent {id:$agent})-[:RAN]->(:Session)-[:MADE]->(k:Call {tool:$t
 RETURN t.changed_at, max(k.ts), old.description, cur.description
 ```
 
-## Beat 4. Typosquat
+### Beat 4. Typosquat
 
 ```bash
 pre a9 Bash '{"command":"pip install reqeusts"}'
@@ -115,7 +173,7 @@ WHERE a.name = $pkg OR b.name = $pkg
 RETURN startNode(r).name, labels(startNode(r))[0], type(r), endNode(r).name, labels(endNode(r))[0]
 ```
 
-## Beat 5. Herd immunity
+### Beat 5. Herd immunity
 
 A second tenant, with its own empty graph on the same FalkorDB, installs the package tenant 1 just blocked.
 
@@ -133,7 +191,7 @@ kill %1
 MATCH (h:Hash {value:$h}) RETURN h.kind, h.first_seen, size(h.tenants)
 ```
 
-## Beat 6. Kill everything; the history survives
+### Beat 6. Kill everything; the history survives
 
 ```bash
 docker compose down && docker compose up -d && sleep 8
@@ -144,7 +202,7 @@ pre s22 Read '{"file_path":"/repo/README.md"}'
 The `falkordb_data` volume holds the graph, so the same `earned_trust` query returns the same count. (`down -v` would
 delete it.)
 
-## Beat 7. The database computes the cut
+### Beat 7. The database computes the cut
 
 Session `a3` read the secret in beat 2. One tainted argument: FalkorDB's min cut severs just that argument, and the call
 runs with it redacted. Every argument tainted: the cut is the call.
@@ -175,7 +233,7 @@ RETURN maxFlow, [i IN range(0, size(edges) - 1) | [edges[i].kind, coalesce(edges
 
 Dashboard: Decisions page, pick the decision: the network with the cut edge in red, and the **Why?** button.
 
-## Beat 8. Shadow execution catches a hidden side effect
+### Beat 8. Shadow execution catches a hidden side effect
 
 A formatter predicted to touch `a.go` reports that it also wrote `~/.ssh/authorized_keys`.
 

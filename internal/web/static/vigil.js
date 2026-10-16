@@ -25,6 +25,12 @@
       return layer[id];
     };
     ids.forEach(i => visit(i, new Set()));
+    // A root sits one column before its nearest child, so a late session does
+    // not draw an edge across the whole graph.
+    ids.filter(i => !(preds[i] || []).length).forEach(i => {
+      const kids = g.edges.filter(e => e.from === i).map(e => layer[e.to]);
+      if (kids.length) layer[i] = Math.max(0, Math.min(...kids) - 1);
+    });
     const cols = {};
     ids.forEach(i => (cols[layer[i]] = cols[layer[i]] || []).push(i));
     return { layer, cols };

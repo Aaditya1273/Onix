@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VIGIL Time Travel</title>
+<link rel="stylesheet" href="vigil.css">
+<style>
+  select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; max-width: 100%; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+  .when { font-size: 22px; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<section class="screen" style="min-height:auto;padding-top:56px">
+  <div class="kicker">Time travel</div>
+  <p class="big">What did the agent know, and when?</p>
+  <p class="sub">Drag through every decision VIGIL made. The graph below is re-queried as it stood at that moment: every edge is filtered by the time its call happened, nothing is copied. Watch a path appear hop by hop across sessions.</p>
+  <div class="row"><label class="sub" for="focus">Decision</label><select id="focus"></select></div>
+  <div class="row"><input type="range" id="t" min="0" max="0" value="0"></div>
+  <div class="row"><span class="when" id="when"></span><span class="sub" id="pos"></span></div>
+  <div class="row" id="moments"></div>
+  <div class="row"><button class="primary" id="play">▶ Play</button><button id="why">Why?</button></div>
+  <svg class="dag" id="g"></svg>
+  <div class="why" id="answer" style="display:none"></div>
+  <p class="sub" id="empty"></p>
+</section>
+<div class="bar">
+  <span class="grow">One query per moment: the subgraph around this decision, filtered to edges that existed then.</span>
+  <a class="btn" href="reveal.html">Reveal</a>
+  <button id="share">Copy link to this moment</button>
+</div>
+<script src="vigil.js"></script>
+<script>
+const { esc, num, when } = VG;
+const $ = id => document.getElementById(id);
+let ticks = [], focus = '', moments = [], T = 0, timer = null, pending = null;
+const q = new URLSearchParams(location.search);
+// Timestamps are nanoseconds (~1.8e18), past JavaScript's exact integers, so a
+// moment read from JSON can round a little below the stored value. Asking "as
+// of" 1 µs later keeps the edge the moment is named for.
+const asOf = t => Math.round(t + 1000);
+
+function nodeLabel(id, kind, label) {
+  if (kind === 'session') return { label: 'session ' + id.replace(/^(cc|codex|gem|pg)-/, '').slice(0, 10), sub: '' };
+  if (kind === 'value') return { label: label || id, sub: id };
+  if (kind === 'decision') return { label: label || id, sub: '' };
+  return { label: label || id, sub: '' };
+}
+
+async function draw(t) {
+  T = t;
+  $('when').textContent = when(t);
+  const i = ticks.findIndex(x => x.ts > t);
+  $('pos').textContent = ticks.length ? `decision ${num(i < 0 ? ticks.length : i)} of ${num(ticks.length)}` : '';
+  const d = await VG.getJSON(`/api/v1/vigil/timeline/asof?id=${encodeURIComponent(focus)}&t=${asOf(t)}`);
+  const nodes = {}, edges = [];
+  const add = (id, kind, label) => {
+    if (!nodes[id]) nodes[id] = Object.assign({ id, kind: '' }, nodeLabel(id, kind, label));
+    else if (label && kind !== 'session') Object.assign(nodes[id], nodeLabel(id, kind, label));
+    if (kind === 'decision' && /BLOCK|PAUSE|redact/.test(label || '')) nodes[id].kind = 'verdict';
+  };
+  d.edges.forEach(e => {
+    add(e.from, e.from_kind, '');
+    add(e.to, e.to_kind, e.to_label);
+    edges.push({ from: e.from, to: e.to, label: e.rel, verdict: e.rel === 'DECIDED' && /BLOCK|PAUSE|redact/.test(e.to_label) });
+  });
+  $('empty').textContent = d.edges.length ? '' : 'At this moment, none of this had happened yet.';
+  VG.dag($('g'), { nodes: Object.values(nodes), edges }, { animate: false });
+}
+
+function schedule(t) { clearTimeout(pending); pending = setTimeout(() => draw(t), 90); }
+
+async function load() {
+  $('answer').style.display = 'none';
+  const all = await VG.getJSON(`/api/v1/vigil/timeline/asof?id=${encodeURIComponent(focus)}&t=${Date.now() * 1e6}`);
+  moments = [...new Set(all.edges.map(e => e.ts))].sort((a, b) => a - b);
+  $('moments').innerHTML = moments.length
+    ? '<span class="sub">Moments this path changed:</span>' + moments.map((m, i) => `<span class="pill" data-t="${m}">${i + 1}. ${when(m)}</span>`).join('')
+    : '<span class="sub">This decision carried no value read elsewhere; its path is just the call and its verdict.</span>';
+  document.querySelectorAll('#moments .pill').forEach(p => (p.onclick = () => jump(+p.dataset.t)));
+  const start = q.get('t') ? +q.get('t') : (moments.length ? moments[moments.length - 1] : Date.now() * 1e6);
+  jump(start);
+}
+
+function jump(t) {
+  let i = ticks.findIndex(x => x.ts > t); if (i < 0) i = ticks.length;
+  $('t').value = Math.max(0, i - 1);
+  draw(t);
+}
+
+$('t').oninput = e => { const x = ticks[+e.target.value]; if (x) schedule(x.ts); };
+$('play').onclick = () => {
+  if (timer) { clearInterval(timer); timer = null; $('play').textContent = '▶ Play'; return; }
+  const seq = [moments.length ? moments[0] - 1 : T].concat(moments);
+  let i = 0; $('play').textContent = '❚❚ Pause';
+  const step = () => { if (i >= seq.length) { clearInterval(timer); timer = null; $('play').textContent = '▶ Play'; return; } jump(seq[i++]); };
+  step(); timer = setInterval(step, 1300);
+};
+$('why').onclick = async () => {
+  const d = await VG.getJSON(`/api/v1/vigil/timeline/why?id=${encodeURIComponent(focus)}&t=${asOf(T)}`);
+  $('answer').style.display = 'block';
+  $('answer').innerHTML = `<b>As of ${esc(when(T))}:</b> ${esc(d.why.sentence)}${d.why.edge ? `<div class="mono" style="color:var(--dim);margin-top:6px">counterfactual edge: ${esc(d.why.edge)}</div>` : ''}`;
+};
+$('focus').onchange = e => { focus = e.target.value; load(); };
+$('share').onclick = e => { const u = new URL(location.href.split('?')[0]); u.searchParams.set('id', focus); u.searchParams.set('t', T); VG.copy(u.toString(), e.target); };
+
+(async () => {
+  try {
+    const [tk, ds] = await Promise.all([VG.getJSON('/api/v1/vigil/timeline/ticks'), VG.getJSON('/api/v1/vigil/graph/decisions?limit=60')]);
+    ticks = tk.ticks || [];
+    const stops = ds.decisions || [];
+    $('t').max = Math.max(0, ticks.length - 1);
+    if (!stops.length) { $('empty').textContent = 'Nothing has been stopped or rewritten yet, so there is no path to travel along.'; return; }
+    const order = s => ({ exfiltration: 0, redact: 1, provenance: 2 }[s.stage] ?? 9);
+    stops.sort((a, b) => order(a) - order(b) || b.ts - a.ts);
+    $('focus').innerHTML = stops.map(s => `<option value="${esc(s.id)}">${esc(s.verdict)} · ${esc(s.stage)} · ${esc(s.tool)} · ${esc(when(s.ts))}</option>`).join('');
+    focus = q.get('id') && stops.some(s => s.id === q.get('id')) ? q.get('id') : stops[0].id;
+    $('focus').value = focus;
+    load();
+  } catch (err) { $('empty').innerHTML = `<span class="error">${esc(err.message)}</span>`; }
+})();
+</script>
+</body>
+</html>

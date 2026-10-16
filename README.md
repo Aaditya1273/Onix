@@ -165,10 +165,10 @@ sequenceDiagram
 
 ## 4. Every Cypher query
 
-The product runs **65 queries**, one per file in [`internal/graph/queries/`](internal/graph/queries), embedded into the binary at
+The product runs **68 queries**, one per file in [`internal/graph/queries/`](internal/graph/queries), embedded into the binary at
 build time. Each file starts with what it answers and an example `params` line. `vigil-cli check-queries` seeds a
 scratch tenant and executes every file against the running FalkorDB with those params; it reports
-`65/65 queries executed without error` on FalkorDB 6.0.2. The only Cypher outside that directory is
+`68/68 queries executed without error` on FalkorDB 6.0.2. The only Cypher outside that directory is
 index creation (`EnsureSchema`) and the demo seed ([`seed.go`](internal/graph/seed.go)). No APOC, no GDS: graph
 algorithms are FalkorDB's own (`algo.maxFlow`, `algo.pageRank`). Where FalkorDB 6.0.2 behaved unexpectedly, the query
 says so and [FALKORDB_FINDINGS.md](FALKORDB_FINDINGS.md) has the reproduction.
@@ -736,12 +736,13 @@ MATCH (s:Session {id:$session})
 SET s.source = $source, s.cost_usd = $cost, s.calls = $calls, s.repeats = $repeats
 ```
 
-[`reveal_totals`](internal/graph/queries/reveal_totals.cypher): Reveal: calls, sessions, agents, time span, calls stopped or rewritten, and calls that would have run without a prompt.
+[`reveal_totals`](internal/graph/queries/reveal_totals.cypher): Reveal: calls, sessions, agents, time span, calls blocked, paused for a human, rewritten, and run without a prompt.
 
 ```cypher
 MATCH (a:Agent)-[:RAN]->(s:Session)-[:MADE]->(k:Call)-[:DECIDED]->(d:Decision)
 RETURN count(k), count(DISTINCT s), count(DISTINCT a), min(k.ts), max(k.ts),
-       sum(CASE WHEN d.verdict <> 'ALLOW' THEN 1 ELSE 0 END), sum(CASE WHEN d.stage = 'redact' THEN 1 ELSE 0 END),
+       sum(CASE WHEN d.verdict = 'BLOCK' THEN 1 ELSE 0 END), sum(CASE WHEN d.verdict = 'PAUSE' THEN 1 ELSE 0 END),
+       sum(CASE WHEN d.stage = 'redact' THEN 1 ELSE 0 END),
        sum(CASE WHEN k.autonomous = true THEN 1 ELSE 0 END)
 ```
 
@@ -816,6 +817,54 @@ RETURN count(a), sum(CASE WHEN a.unsafe THEN 1 ELSE 0 END), sum(CASE WHEN a.new_
 MATCH (a:Attempt)
 RETURN a.ts, a.scenario, a.input, a.verdict, a.stage, a.unsafe, a.new_signal
 ORDER BY a.ts DESC LIMIT $limit
+```
+
+</details>
+
+<details><summary><b>Time travel</b> · 3 queries</summary>
+
+[`asof_subgraph`](internal/graph/queries/asof_subgraph.cypher): Time travel: the subgraph around one call as it stood at time $t. Every edge is returned only if it existed then (its call's ts <= $t), so a cross-session path appears hop by hop. No snapshot: one filtered query over the live graph.
+
+```cypher
+MATCH (e:Call {id:$id})-[:ARG_CONTAINS]->(v:Value)<-[:READ]-(r:Call)<-[:MADE]-(sr:Session)
+WHERE r.ts <= $t
+RETURN sr.id AS f, 'session' AS fk, 'MADE' AS rel, r.id AS t2, CASE WHEN coalesce(r.label, '') = '' THEN r.tool ELSE r.label END AS tl, 'call' AS tk, r.ts AS ts
+UNION ALL
+MATCH (e:Call {id:$id})-[:ARG_CONTAINS]->(v:Value)<-[:READ]-(r:Call)
+WHERE r.ts <= $t
+RETURN r.id AS f, 'call' AS fk, 'READ' AS rel, 'value#' + left(v.hash, 12) AS t2, CASE WHEN v.sensitive THEN 'secret' ELSE 'value' END AS tl, 'value' AS tk, r.ts AS ts
+UNION ALL
+MATCH (se:Session)-[:MADE]->(e:Call {id:$id})
+WHERE e.ts <= $t
+RETURN se.id AS f, 'session' AS fk, 'MADE' AS rel, e.id AS t2, CASE WHEN coalesce(e.label, '') = '' THEN e.tool ELSE e.label END AS tl, 'call' AS tk, e.ts AS ts
+UNION ALL
+MATCH (e:Call {id:$id})-[:ARG_CONTAINS]->(v:Value)
+WHERE e.ts <= $t
+RETURN 'value#' + left(v.hash, 12) AS f, 'value' AS fk, 'ARG_CONTAINS' AS rel, e.id AS t2, CASE WHEN coalesce(e.label, '') = '' THEN e.tool ELSE e.label END AS tl, 'call' AS tk, e.ts AS ts
+UNION ALL
+MATCH (e:Call {id:$id})-[:DECIDED]->(d:Decision)
+WHERE e.ts <= $t
+RETURN e.id AS f, 'call' AS fk, 'DECIDED' AS rel, 'decision ' + d.id AS t2, d.verdict + ' · ' + d.stage AS tl, 'decision' AS tk, e.ts AS ts
+UNION ALL
+MATCH (e:Call {id:$id})-[:DECIDED]->(d:Decision)-[:PREV]->(p:Decision)
+WHERE e.ts <= $t AND p.ts <= $t
+RETURN 'decision ' + d.id AS f, 'decision' AS fk, 'PREV' AS rel, 'decision ' + p.id AS t2, p.verdict + ' · ' + p.stage AS tl, 'decision' AS tk, p.ts AS ts
+```
+
+[`timeline_ticks`](internal/graph/queries/timeline_ticks.cypher): Time travel: the scrubber's ticks, one per decision, newest $limit, in time order.
+
+```cypher
+MATCH (k:Call)-[:DECIDED]->(d:Decision)
+WITH d, k ORDER BY d.ts DESC LIMIT $limit
+RETURN d.id, d.ts, d.verdict, d.stage, k.tool ORDER BY d.ts
+```
+
+[`timeline_latest_stop`](internal/graph/queries/timeline_latest_stop.cypher): Time travel: the most recent decision at or before $t that stopped or rewrote a call, for "Why?" at any point.
+
+```cypher
+MATCH (k:Call)-[:DECIDED]->(d:Decision)
+WHERE d.ts <= $t AND (d.verdict <> 'ALLOW' OR d.stage = 'redact')
+RETURN d.id ORDER BY d.ts DESC LIMIT 1
 ```
 
 </details>
@@ -1176,6 +1225,20 @@ real firewall against FalkorDB on the `playground` tenant. The page draws the de
 <td width="50%"><img src="docs/img/playground-after.png" alt="Playground, after the fix: arg url is uncuttable, the terminal edge is cut, the call is blocked"><br><sub><b>After</b>: a destination argument is uncuttable (∞), so the only finite cut is the call itself. BLOCKED, with the counterfactual underneath.</sub></td>
 </tr></table>
 
+### 5.10 Time travel: what did the agent know, and when?
+
+`/web/timeline.html` on any VIGIL server (or the Time travel button on the reveal page): pick a decision, drag the
+scrubber through every decision's timestamp, and the subgraph around it is re-queried as it stood at that moment. Play
+steps through the moments the path changed, so a cross-session exfiltration appears hop by hop: session A's read, then
+the value, then session B's call and its verdict. **Why?** answers at any point.
+
+Nothing is snapshotted or copied. [`asof_subgraph.cypher`](internal/graph/queries/asof_subgraph.cypher) returns only
+edges whose call happened at or before `$t`, plus the decision's `PREV` link in the hash chain.
+`TestLiveAsOfShowsThePathHopByHop` checks that before the read nothing exists, that between the hops only the read
+exists, that the full path exists once both hops do, and that no returned edge postdates `T`.
+
+<p align="center"><img src="docs/img/timeline.png" width="85%" alt="Time travel: a cross-session path drawn as of a moment, with the scrubber and the Why? answer"></p>
+
 ## 6. Measurements
 
 Every number here is copied from [docs/measurements.md](docs/measurements.md), the raw output of
@@ -1247,7 +1310,8 @@ was added since then:
 | Oct 16 | [`internal/appserver/ask.go`](internal/appserver/ask.go) ask-the-firewall MCP tools, `Firewall.DryRun`, [`internal/firewall/reputation.go`](internal/firewall/reputation.go) | `2f7acd8` |
 | Oct 16 | [`scripts/measure.py`](scripts/measure.py), [docs/measurements.md](docs/measurements.md), [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | `3b6d8e1`, `220c01c` |
 | Oct 16 | [`internal/reveal/`](internal/reveal) (Claude Code, Codex, Gemini CLI log readers and the replay), `vigil-cli reveal`, [`internal/web/`](internal/web) (the reveal page and the shared renderer), the secret-detector fix reveal surfaced | `4d410f7` |
-| Oct 16 | [`internal/playground/`](internal/playground) and its no-I/O tool layer [`sim/`](internal/playground/sim), hosted mode, the compose profile, [deploy/playground](deploy/playground) | this commit |
+| Oct 16 | [`internal/playground/`](internal/playground) and its no-I/O tool layer [`sim/`](internal/playground/sim), hosted mode, the compose profile, [deploy/playground](deploy/playground) | `ffcba95` |
+| Oct 16 | [`internal/graph/timeline.go`](internal/graph/timeline.go), the as-of queries, `/web/timeline.html` | this commit |
 
 ## 9. AI-assistance disclosure
 

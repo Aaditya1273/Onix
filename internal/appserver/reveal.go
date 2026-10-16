@@ -94,6 +94,7 @@ func ServeLocal(ctx context.Context, ln net.Listener, logger *slog.Logger, fw *f
 	api := r.PathPrefix("/api/v1").Subrouter()
 	st.registerDecisionRoutes(api)
 	st.registerRevealRoutes(api, scan)
+	st.registerTimelineRoutes(api)
 	r.PathPrefix("/web/").Handler(web.Handler())
 	r.Handle("/", http.RedirectHandler("/web/reveal.html", http.StatusFound))
 	srv := &http.Server{Handler: r, ReadTimeout: 15 * time.Second, WriteTimeout: 60 * time.Second}

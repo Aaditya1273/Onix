@@ -1,0 +1,15 @@
+# FalkorDB for the playground: private network only (no public service), persisted on a volume.
+#   fly apps create vigil-playground-db && fly volumes create falkordb_data -a vigil-playground-db --size 1
+app = "vigil-playground-db"
+primary_region = "iad"
+
+[build]
+  image = "falkordb/falkordb:6.0.2"
+
+[mounts]
+  source = "falkordb_data"
+  destination = "/var/lib/falkordb/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

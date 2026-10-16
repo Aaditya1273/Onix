@@ -149,6 +149,30 @@ func (f *Firewall) Observe(sessionID, tool string, args map[string]any, output s
 	}
 }
 
+// ObserveAuthority records the URLs in content whose authority the graph
+// already computed, such as a memory read: a rule an agent wrote down
+// (TOOL) that was derived from a web page (EXTERNAL) carries EXTERNAL, the
+// minimum over its DERIVED_FROM ancestors. Laundering content through memory
+// does not raise its authority.
+func (f *Firewall) ObserveAuthority(sessionID, tool, content, authority string) {
+	if !f.deps.Graph.Configured() || content == "" {
+		return
+	}
+	if _, ok := graph.TrustRank[authority]; !ok {
+		authority = "EXTERNAL"
+	}
+	f.deps.Graph.RecordValues(sessionID, tool, hashAll(urlRe.FindAllString(content, maxValues)), false, authority)
+}
+
+type preFixKey struct{}
+
+// BeforeDestinationFix computes a call's min cut with the capacities VIGIL
+// used before destination arguments became uncuttable (b23879e), so the
+// playground can show the old verdict next to the new one. Nothing else sets it.
+func BeforeDestinationFix(ctx context.Context) context.Context {
+	return context.WithValue(ctx, preFixKey{}, true)
+}
+
 // egressCapable: a call that can carry a value off the machine. A tool this
 // codebase has no capability model for (an arbitrary MCP tool posting to
 // Slack) is assumed to be one.
@@ -233,7 +257,7 @@ func (f *Firewall) checkFlows(ctx context.Context, c Call, caps []string, callID
 
 	args := make([]graph.CutArg, 0, len(keys))
 	for _, k := range keys {
-		a := graph.CutArg{Key: k, Fixed: destinationKeys[k]}
+		a := graph.CutArg{Key: k, Fixed: destinationKeys[k] && ctx.Value(preFixKey{}) == nil}
 		for _, h := range hashAll(perArg[k]) {
 			if tainted[h] {
 				a.Hashes = append(a.Hashes, h)

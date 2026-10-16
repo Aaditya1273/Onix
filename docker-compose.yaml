@@ -52,6 +52,22 @@ services:
         condition: service_healthy
     profiles: ["tools"]
 
+  # Public playground (hosted mode): only the playground, on its own tenant.
+  #   docker compose --profile playground up -d   ->  http://localhost:8090
+  playground:
+    build: .
+    ports:
+      - "${PLAYGROUND_PORT:-8090}:8080"
+    environment:
+      VIGIL_PLAYGROUND: "1"
+      VIGIL_FALKORDB_URL: redis://falkordb:6379
+      VIGIL_ORG_ID: playground
+      VIGIL_PLAYGROUND_RATE: ${VIGIL_PLAYGROUND_RATE:-20}
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    profiles: ["playground"]
+
 volumes:
   falkordb_data:
   vigil_data:

@@ -1,0 +1,33 @@
+# The public playground on Fly.io. Run from the repository root:
+#   fly apps create vigil-playground
+#   fly deploy --config deploy/playground/falkordb.fly.toml   # the private FalkorDB, first
+#   fly secrets set -a vigil-playground VIGIL_FALKORDB_URL=redis://vigil-playground-db.internal:6379
+#   fly deploy --config deploy/playground/fly.toml
+app = "vigil-playground"
+primary_region = "iad"
+
+[build]
+  dockerfile = "../../Dockerfile"
+
+[env]
+  VIGIL_PLAYGROUND = "1"      # hosted mode: the playground routes and pages, nothing else
+  VIGIL_ORG_ID = "playground" # its own tenant graph
+  VIGIL_TRUST_PROXY = "1"     # rate-limit by Fly-Client-IP
+  VIGIL_PLAYGROUND_RATE = "20"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/api/v1/health"
+    interval = "30s"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

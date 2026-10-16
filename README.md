@@ -106,6 +106,7 @@ never spliced into query text (tested with injection strings round-tripping inta
 | `FlowSource` · `FlowRead` · `FlowValue` · `ArgSlot` · `Effect` · `FlowSink` | call, name | One call's influence network for the min cut; the proxies point at the real `Call` and `Value` by `COPY_OF` |
 | `PredictedEffect` / `ObservedEffect` | kind (file, host, package, env), name, hidden | Shadow execution: what a call was expected to touch, and what it reported touching |
 | `RiskSnapshot` | scope, day, score, components | The daily Agent Risk Score per agent and for the tenant |
+| `Attempt` *(playground tenant)* | ts, scenario, input (secrets stripped), verdict, stage, unsafe, new_signal | One public playground attempt |
 | `Person` / `EntityType` / `Document` | name | The identity graph |
 | `Package` / `Maintainer` / `Service` | name, ecosystem | The dependency graph |
 | `Hash` *(threat_intel)* | value, kind, first_seen, tenants | An anonymized block shared across tenants |
@@ -164,10 +165,10 @@ sequenceDiagram
 
 ## 4. Every Cypher query
 
-The product runs **61 queries**, one per file in [`internal/graph/queries/`](internal/graph/queries), embedded into the binary at
+The product runs **65 queries**, one per file in [`internal/graph/queries/`](internal/graph/queries), embedded into the binary at
 build time. Each file starts with what it answers and an example `params` line. `vigil-cli check-queries` seeds a
 scratch tenant and executes every file against the running FalkorDB with those params; it reports
-`61/61 queries executed without error` on FalkorDB 6.0.2. The only Cypher outside that directory is
+`65/65 queries executed without error` on FalkorDB 6.0.2. The only Cypher outside that directory is
 index creation (`EnsureSchema`) and the demo seed ([`seed.go`](internal/graph/seed.go)). No APOC, no GDS: graph
 algorithms are FalkorDB's own (`algo.maxFlow`, `algo.pageRank`). Where FalkorDB 6.0.2 behaved unexpectedly, the query
 says so and [FALKORDB_FINDINGS.md](FALKORDB_FINDINGS.md) has the reproduction.
@@ -778,6 +779,47 @@ RETURN count(s), sum(CASE WHEN s.cost_usd >= 0 THEN 1 ELSE 0 END), sum(CASE WHEN
 
 </details>
 
+<details><summary><b>Playground</b> · 4 queries</summary>
+
+[`playground_seed`](internal/graph/queries/playground_seed.cypher): Playground memory: a forum post (EXTERNAL) laundered into a stored rule (TOOL) by DERIVED_FROM, for the memory-laundering scenario.
+
+```cypher
+MERGE (w:Fact {id:'pg-forum'})
+SET w.subject = 'release procedure (source)', w.subject_lc = 'release procedure (source)', w.name = 'forum: release tip', w.text = $post,
+    w.trust = 'EXTERNAL', w.trust_rank = 0, w.valid_from = $ts
+MERGE (d:Fact {id:'pg-rule'})
+SET d.subject = 'release procedure', d.subject_lc = 'release procedure', d.name = 'rule: release step', d.text = $rule,
+    d.trust = 'TOOL', d.trust_rank = 1, d.valid_from = $ts
+MERGE (d)-[:DERIVED_FROM]->(w)
+```
+
+[`playground_attempt`](internal/graph/queries/playground_attempt.cypher): Record one playground attempt (input already stripped of secrets). new_signal: the first attempt stopped with this stage and signal set.
+
+```cypher
+OPTIONAL MATCH (prev:Attempt {signature:$signature}) WHERE prev.verdict <> 'ALLOW'
+WITH count(prev) AS seen
+CREATE (a:Attempt {id:$id, ts:$ts, scenario:$scenario, input:$input, verdict:$verdict, stage:$stage, signature:$signature,
+                   unsafe:$unsafe, new_signal: ($verdict <> 'ALLOW' AND seen = 0)})
+RETURN a.new_signal
+```
+
+[`playground_stats`](internal/graph/queries/playground_stats.cypher): The public counter: attempts, attempts that reached an unsafe effect, attempts that produced a new signal.
+
+```cypher
+MATCH (a:Attempt)
+RETURN count(a), sum(CASE WHEN a.unsafe THEN 1 ELSE 0 END), sum(CASE WHEN a.new_signal THEN 1 ELSE 0 END)
+```
+
+[`playground_feed`](internal/graph/queries/playground_feed.cypher): The anonymized feed: the latest attempts, inputs already stripped of secrets, no client identity stored.
+
+```cypher
+MATCH (a:Attempt)
+RETURN a.ts, a.scenario, a.input, a.verdict, a.stage, a.unsafe, a.new_signal
+ORDER BY a.ts DESC LIMIT $limit
+```
+
+</details>
+
 ## 5. The eight demo beats
 
 Each beat is a command in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md), with the Cypher that fires. The replies below are
@@ -1099,6 +1141,41 @@ Every view reads the graph directly; nothing on these pages is mocked.
 
 </td></tr></table>
 
+### 5.9 Public playground: try to get past it
+
+```bash
+docker compose --profile playground up -d          # http://localhost:8090
+```
+
+A simulated agent works in a sandbox world whose `/repo/.env` holds a key shown to you. Type its next move (a command,
+a URL, `read <path>`) or pick a preloaded attack: a **poisoned tool description**, a **rug pull**, a **typosquat
+install**, **cross-session exfiltration**, **memory laundering**, and **the bug that fooled us**, the URL-redaction case,
+with a toggle that computes the min cut with the pre-fix capacities next to the current ones. Each step is decided by the
+real firewall against FalkorDB on the `playground` tenant. The page draws the decisive subgraph hop by hop, with the
+`algo.maxFlow` cut in red, the verdict and the counterfactual.
+
+- **Nothing executes.** Calls the firewall allows run in [`internal/playground/sim`](internal/playground/sim), an
+  in-memory world. A test parses that package's imports and fails on any `os`, `net`, `exec`, `syscall` or `io`;
+  another runs `rm -rf` and friends and checks the host is untouched.
+- **The counter cannot be flattered.** "Reached an unsafe effect" is judged by the simulated world (the key left, a
+  malicious package was installed, an attacker's script ran in a shell), not by VIGIL's rules. "Caught something new"
+  means the first stop with that stage. The page shows the live counts; no number is baked in.
+- **Two scenarios show what the graph adds beyond pattern matching.** In the poisoned-tool attack, the key never
+  appears in the command (`curl … -d @/repo/.env`), so literal matching sees nothing; the URL came from the tool's
+  description, which is external content, so provenance pauses it. In memory laundering, the stored rule reads as the
+  agent's own (`TOOL`) but was `DERIVED_FROM` a forum post, so its authority is `EXTERNAL`
+  ([`ObserveAuthority`](internal/firewall/flow.go)) and the `curl … | sh` it suggests is paused.
+- **Hosted mode** (`VIGIL_PLAYGROUND=1`) serves the playground and nothing else: no control API, hook, MCP server or
+  OAuth. Inputs are stripped of anything resembling a secret before storage, no visitor identity is stored, and the
+  rate limit is per visitor. Fly.io and Railway configs and the full sandboxing notes are in
+  [deploy/playground](deploy/playground/README.md). Those configs follow each platform's format but have not been
+  deployed from this repository, so there is no public URL to show yet.
+
+<table><tr>
+<td width="50%"><img src="docs/img/playground-before.png" alt="Playground, before the fix: arg url has capacity 2, the cut redacts the token, the call is allowed and rewritten"><br><sub><b>Before the fix</b> (toggle on): the URL argument costs 2 to cut, so the min cut redacts it and the fetch goes nowhere. Safe, but a rewrite where a block was due.</sub></td>
+<td width="50%"><img src="docs/img/playground-after.png" alt="Playground, after the fix: arg url is uncuttable, the terminal edge is cut, the call is blocked"><br><sub><b>After</b>: a destination argument is uncuttable (∞), so the only finite cut is the call itself. BLOCKED, with the counterfactual underneath.</sub></td>
+</tr></table>
+
 ## 6. Measurements
 
 Every number here is copied from [docs/measurements.md](docs/measurements.md), the raw output of
@@ -1169,7 +1246,8 @@ was added since then:
 | Oct 16 | [`internal/graph/risk.go`](internal/graph/risk.go), [`ledger.go`](internal/graph/ledger.go), `vigil-cli export-ledger` / `verify-ledger`, Risk page | `8c04987` |
 | Oct 16 | [`internal/appserver/ask.go`](internal/appserver/ask.go) ask-the-firewall MCP tools, `Firewall.DryRun`, [`internal/firewall/reputation.go`](internal/firewall/reputation.go) | `2f7acd8` |
 | Oct 16 | [`scripts/measure.py`](scripts/measure.py), [docs/measurements.md](docs/measurements.md), [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | `3b6d8e1`, `220c01c` |
-| Oct 16 | [`internal/reveal/`](internal/reveal) (Claude Code, Codex, Gemini CLI log readers and the replay), `vigil-cli reveal`, [`internal/web/`](internal/web) (the reveal page and the shared renderer), the secret-detector fix reveal surfaced | this commit |
+| Oct 16 | [`internal/reveal/`](internal/reveal) (Claude Code, Codex, Gemini CLI log readers and the replay), `vigil-cli reveal`, [`internal/web/`](internal/web) (the reveal page and the shared renderer), the secret-detector fix reveal surfaced | `4d410f7` |
+| Oct 16 | [`internal/playground/`](internal/playground) and its no-I/O tool layer [`sim/`](internal/playground/sim), hosted mode, the compose profile, [deploy/playground](deploy/playground) | this commit |
 
 ## 9. AI-assistance disclosure
 
@@ -1232,6 +1310,7 @@ Then:
 
 ```bash
 go run ./cmd/vigil-cli reveal              # your own agent history, replayed (see the top of this README)
+docker compose --profile playground up -d  # the public playground on :8090
 go build -o vigil-cli ./cmd/vigil-cli
 ./vigil-cli init --dir ~/your-project      # installs the Claude Code hook (merges, idempotent)
 #  day one: VIGIL_MODE=observe on the server records everything and blocks nothing

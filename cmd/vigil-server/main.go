@@ -70,7 +70,16 @@ func main() {
 	}
 
 	addr := vigil.EnvOr("ADDR", ":8080")
-	srv := appserver.NewServer(addr)
+	var srv *http.Server
+	if vigil.Env("PLAYGROUND") == "1" { // hosted playground: nothing but the playground
+		var err error
+		if srv, err = appserver.NewPlaygroundServer(addr, slog.Default()); err != nil {
+			slog.Error("playground", "error", err)
+			os.Exit(1)
+		}
+	} else {
+		srv = appserver.NewServer(addr)
+	}
 
 	go func() {
 		slog.Info("vigil server starting", "addr", addr)

@@ -16,6 +16,7 @@ func main() {
 
 	rootCmd.AddCommand(auditCmd())
 	rootCmd.AddCommand(graphSeedCmd())
+	rootCmd.AddCommand(revealCmd())
 	rootCmd.AddCommand(hookCmd())
 	rootCmd.AddCommand(initCmd())
 	rootCmd.AddCommand(checkQueriesCmd())

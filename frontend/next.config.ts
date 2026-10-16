@@ -32,6 +32,8 @@ const nextConfig: NextConfig = {
       // MCP SSE + Bearer endpoints
       { source: "/api/v1/mcp",          destination: `${BACKEND}/api/v1/mcp` },
       { source: "/api/v1/mcp/bearer",   destination: `${BACKEND}/api/v1/mcp/bearer` },
+      // Reveal, playground and time travel: pages the Go server serves itself
+      { source: "/web/:path*",          destination: `${BACKEND}/web/:path*` },
       // Catch-all for any other /api/v1 not handled by a Next.js route file
       { source: "/api/v1/:path*",       destination: `${BACKEND}/api/v1/:path*` },
     ];

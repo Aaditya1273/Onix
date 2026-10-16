@@ -60,6 +60,13 @@ type Call struct {
 	ToolCost    float64
 	SessionCost float64
 	Budget      float64
+	// Label is a human-readable summary of the call, already redacted. Only
+	// a replay of local history sets it; live calls store hashes only.
+	Label string
+	// At is when the call was made. Zero means now; a replay of recorded
+	// history (vigil-cli reveal) passes the original time, so the graph's
+	// ordering, trust windows and time travel see history as it happened.
+	At time.Time
 }
 
 // Result is a decision plus everything needed to explain and audit it.
@@ -112,7 +119,8 @@ type Result struct {
 	// sig identifies the exact call for loop detection.
 	sig string
 	// pkg is the package an install-shaped call installs.
-	pkg string
+	pkg   string
+	label string
 	// argsHash fingerprints the call's arguments for the audit chain.
 	argsHash string
 	// SupplyChain is populated only when a call was blocked by the
@@ -237,13 +245,17 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 		sig:       callSignature(c.Tool, c.Args),
 		RiskScore: -1,
 		Cost:      c.ToolCost,
-		At:        time.Now(),
+		At:        c.At,
+	}
+	if res.At.IsZero() {
+		res.At = time.Now()
 	}
 	res.ID = fmt.Sprintf("%s-%d", c.SessionID, res.At.UnixNano())
 	if dry {
 		res.ID = "dry-" + res.ID
 	}
 	res.argsHash = audit.HashArgs(c.Args)
+	res.label = c.Label
 	res.Predicted = f.predict(ctx, c)
 	if p := blastRadiusTarget(c); p != "" {
 		res.pkg, _ = splitPkgVersion(p)
@@ -354,7 +366,7 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 	// --- 3. Cost forecast ----------------------------------------------------
 	// Forecast the charge this call *would* incur, not the one already spent —
 	// the point is to intervene before the budget is gone.
-	fc := f.deps.Forecaster.Compute(time.Now(), c.SessionCost+c.ToolCost, c.Budget, sess.costSamples())
+	fc := f.deps.Forecaster.Compute(res.At, c.SessionCost+c.ToolCost, c.Budget, sess.costSamples())
 	res.Forecast = fc
 
 	tier := llm.TierNormal
@@ -694,6 +706,7 @@ func (f *Firewall) finish(ctx context.Context, span telemetry.Span, sess *Sessio
 	var sealed audit.Event
 	if f.deps.Ledger != nil {
 		e, err := f.deps.Ledger.Append(audit.Event{
+			Timestamp: res.At,
 			AgentID:   res.SessionID,
 			SessionID: res.SessionID,
 			Tool:      res.Tool,
@@ -720,7 +733,7 @@ func (f *Firewall) finish(ctx context.Context, span telemetry.Span, sess *Sessio
 		Agent: res.Agent, Session: res.SessionID, Tool: res.Tool, Caps: res.Caps, Repo: res.Repo,
 		Model: res.ModelUsed, GraphMS: res.GraphMS, Egress: res.egress,
 		CutEdges: cutEdges(res.Cut), CutCost: cutCost(res.Cut), Paths: res.GraphPaths,
-		Predicted: predictedIfAllowed(res), Package: res.pkg, Audit: sealed,
+		Predicted: predictedIfAllowed(res), Package: res.pkg, Label: res.label, Audit: sealed,
 		Decision: string(res.Decision), Stage: res.Stage, Reason: res.Reason,
 		Hash: hash, PrevHash: prevHash, At: res.At,
 	})

@@ -45,3 +45,47 @@ func TestReputationMatchesOnlyTheSameServer(t *testing.T) {
 		}
 	}
 }
+
+// Found by replaying real history: ordinary words in a command's output were
+// recorded as secrets, so later commands mentioning them looked like
+// exfiltration. Secrets are still found; words, paths and config are not.
+func TestSecretValuesIgnoresOrdinaryValues(t *testing.T) {
+	out := `status: expected
+result: generated
+Content-Type: application/json
+loaded .env.local
+NODE_ENV=production
+PORT=8080
+HOME=/home/dev/project
+SITE_URL=https://example.com/docs
+STRIPE_KEY=sk_live_51HxAbCdEfGh123456
+password: hunter2hunter
+DATABASE_URL=postgres://app:s3cretpass@db/app
+SESSION_TOKEN=3f9a1c2b7d8e4f60a1b2
+export GITHUB_TOKEN="ghp_abcdefghijklmnop1234"
+DEPLOY_KEY: generated
+API_KEY=undefined
+secrets: secrets:
+Author: Aaditya1273
+CONTRACT_ADDRESS=0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed
+GIT_SHA=4f8c2e9a1b7d3c6e5f0a9b8c7d6e5f4a3b2c1d0e
+SIGNING_SECRET=Zx9vQ2mL7pR4tY8wK3nB6cJ1
+PRIVATE_KEY=0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318
+OPENAI_API_KEY=sk-proj-abcdefghij0123456789`
+	got := map[string]bool{}
+	for _, v := range secretValues(out) {
+		got[v] = true
+	}
+	for _, want := range []string{"sk_live_51HxAbCdEfGh123456", "hunter2hunter", "postgres://app:s3cretpass@db/app", "3f9a1c2b7d8e4f60a1b2",
+		"ghp_abcdefghijklmnop1234", "Zx9vQ2mL7pR4tY8wK3nB6cJ1", "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318", "sk-proj-abcdefghij0123456789"} {
+		if !got[want] {
+			t.Errorf("missed secret %q (got %v)", want, got)
+		}
+	}
+	for _, not := range []string{"expected", "generated", "application/json", "production", "/home/dev/project", "https://example.com/docs",
+		"undefined", "secrets:", "Aaditya1273", "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", "4f8c2e9a1b7d3c6e5f0a9b8c7d6e5f4a3b2c1d0e"} {
+		if got[not] {
+			t.Errorf("%q is not a secret", not)
+		}
+	}
+}

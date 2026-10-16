@@ -3,6 +3,7 @@ package appserver
 import (
 	"context"
 	"encoding/json"
+	"github.com/Aaditya1273/Vigil/internal/web"
 	"io"
 	"log/slog"
 	"net/http"
@@ -92,6 +93,7 @@ func NewServer(addr string) *http.Server {
 	})
 
 	api := r.PathPrefix("/api/v1").Subrouter()
+	r.PathPrefix("/web/").Handler(web.Handler()) // reveal, playground and time-travel pages
 
 	// --- Health ---
 	api.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

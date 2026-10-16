@@ -54,20 +54,7 @@ func buildStack(logger *slog.Logger, budgetLimit float64) *stack {
 		heal.ExecuteRecovery(ctx, agentCtx, v)
 	})
 
-	// Only the detectors that can actually fire on MCP data are registered.
-	//
-	// TokenExplosion, RepeatedPrompt, and PromptRecursion read InputTokens,
-	// OutputTokens, and PromptText. An MCP *tool* call carries none of those,
-	// because Vigil intercepts tool calls, not the agent's LLM turns.
-	// Registering them would be dead code presented as coverage, and the
-	// governance endpoint would report nine active rules when six can fire.
-	// They become registerable when an SDK-side span-ingest path exists.
-	gov.RegisterPlugin(plugins.NewInfiniteLoopDetector(envInt("LOOP_MAX_REPEATS", 5)))
-	gov.RegisterPlugin(plugins.NewBudgetExceededDetector())
-	gov.RegisterPlugin(plugins.NewRetryStormDetector(envInt("RETRY_STORM_MAX", 3)))
-	gov.RegisterPlugin(plugins.NewLatencySpikeDetector(envDuration("LATENCY_SPIKE", 30*time.Second)))
-	gov.RegisterPlugin(plugins.NewToolTimeoutDetector(envDuration("TOOL_TIMEOUT", 60*time.Second)))
-	gov.RegisterPlugin(plugins.NewAgentStuckDetector(envDuration("AGENT_STUCK", 120*time.Second)))
+	registerDetectors(gov)
 
 	// --- Inference -----------------------------------------------------------
 	var provider llm.Provider = llm.DeterministicProvider{}
@@ -158,6 +145,26 @@ func buildStack(logger *slog.Logger, budgetLimit float64) *stack {
 	)
 
 	return &stack{fw: fw, policies: policies, gov: gov, heal: heal, router: router, ledger: ledger, graph: graphClient}
+}
+
+// registerDetectors installs the behavioral detectors, the same set for the
+// live server and for a replay of recorded history.
+//
+// Only the detectors that can actually fire on MCP data are registered.
+//
+// TokenExplosion, RepeatedPrompt, and PromptRecursion read InputTokens,
+// OutputTokens, and PromptText. An MCP *tool* call carries none of those,
+// because Vigil intercepts tool calls, not the agent's LLM turns.
+// Registering them would be dead code presented as coverage, and the
+// governance endpoint would report nine active rules when six can fire.
+// They become registerable when an SDK-side span-ingest path exists.
+func registerDetectors(gov *engine.GovernanceEngine) {
+	gov.RegisterPlugin(plugins.NewInfiniteLoopDetector(envInt("LOOP_MAX_REPEATS", 5)))
+	gov.RegisterPlugin(plugins.NewBudgetExceededDetector())
+	gov.RegisterPlugin(plugins.NewRetryStormDetector(envInt("RETRY_STORM_MAX", 3)))
+	gov.RegisterPlugin(plugins.NewLatencySpikeDetector(envDuration("LATENCY_SPIKE", 30*time.Second)))
+	gov.RegisterPlugin(plugins.NewToolTimeoutDetector(envDuration("TOOL_TIMEOUT", 60*time.Second)))
+	gov.RegisterPlugin(plugins.NewAgentStuckDetector(envDuration("AGENT_STUCK", 120*time.Second)))
 }
 
 // broadcastAlert pushes a governance alert to the dashboard over the existing

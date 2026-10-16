@@ -34,7 +34,7 @@ func askCall(ctx context.Context, in map[string]any, budget float64) (firewall.C
 	if input == nil {
 		input = map[string]any{}
 	}
-	tool, args := canonicalTool(name, input)
+	tool, args := firewall.CanonicalTool(name, input)
 	c := firewall.Call{Tool: tool, Args: args, Budget: budget, Agent: str("agent"), SessionID: str("session_id"), Repo: str("repo")}
 	if s, ok := mcp.SessionFrom(ctx); ok {
 		if c.Agent == "" {

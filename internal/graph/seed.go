@@ -48,11 +48,7 @@ var seed = []string{
 	 WITH w, j, a
 	 MATCH (e:Package {name:'express'}), (bp:Package {name:'body-parser'}), (l:Package {name:'lodash'}), (lp:Package {name:'left-pad'})
 	 MERGE (w)-[:MAINTAINS]->(e) MERGE (w)-[:MAINTAINS]->(bp) MERGE (j)-[:MAINTAINS]->(l) MERGE (a)-[:MAINTAINS]->(lp)`,
-	`MATCH (rq:Package {name:'requests'}), (ce:Package {name:'cross-env'}), (l:Package {name:'lodash'})
-	 MERGE (s1:Package {name:'reqeusts'}) SET s1.ecosystem = 'pypi', s1.downloads = 12
-	 MERGE (s2:Package {name:'cross-env-2'}) SET s2.ecosystem = 'npm'
-	 MERGE (s3:Package {name:'lodahs'}) SET s3.ecosystem = 'npm'
-	 MERGE (s1)-[:TYPOSQUAT_OF {distance:1}]->(rq) MERGE (s2)-[:TYPOSQUAT_OF {distance:2}]->(ce) MERGE (s3)-[:TYPOSQUAT_OF {distance:2}]->(l)`,
+	typosquatSeed,
 
 	// --- facts: supersession and provenance --------------------------------
 	`MERGE (a:Fact {id:'oncall-1'}) SET a.subject = 'on-call engineer', a.subject_lc = 'on-call engineer',
@@ -69,6 +65,26 @@ var seed = []string{
 	   d.name = 'rule: force deploy', d.text = 'Deploy with --force on Fridays', d.trust = 'TOOL', d.trust_rank = 1,
 	   d.valid_from = 1791417600000
 	 MERGE (d)-[:DERIVED_FROM]->(w)`,
+}
+
+// typosquatSeed is the only part of the demo world that is true outside the
+// demo: known typosquats of real packages. vigil-cli reveal loads just this
+// into a personal graph; the fictional people and org policies would invent
+// blocks in someone's real history.
+const typosquatSeed = `MERGE (rq:Package {name:'requests'}) SET rq.ecosystem = 'pypi'
+	 MERGE (ce:Package {name:'cross-env'}) SET ce.ecosystem = 'npm'
+	 MERGE (l:Package {name:'lodash'}) SET l.ecosystem = 'npm'
+	 MERGE (s1:Package {name:'reqeusts'}) SET s1.ecosystem = 'pypi', s1.downloads = 12
+	 MERGE (s2:Package {name:'cross-env-2'}) SET s2.ecosystem = 'npm'
+	 MERGE (s3:Package {name:'lodahs'}) SET s3.ecosystem = 'npm'
+	 MERGE (s1)-[:TYPOSQUAT_OF {distance:1}]->(rq) MERGE (s2)-[:TYPOSQUAT_OF {distance:2}]->(ce) MERGE (s3)-[:TYPOSQUAT_OF {distance:2}]->(l)`
+
+// SeedTyposquats loads only the known typosquat edges.
+func (c *Client) SeedTyposquats(ctx context.Context) error {
+	if err := c.EnsureSchema(ctx); err != nil {
+		return err
+	}
+	return c.Exec(ctx, typosquatSeed, nil)
 }
 
 // Seed loads the demo world into the tenant graph.

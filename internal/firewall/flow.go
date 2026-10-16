@@ -26,8 +26,16 @@ const maxValues = 300
 
 var (
 	// KEY=value, KEY: value, export KEY="value": the shape of .env files,
-	// credentials files, and most config.
-	assignmentRe = regexp.MustCompile(`(?m)^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_.\-]*\s*[=:]\s*["']?([^\s"'#]{8,})`)
+	// credentials files, and most config. A match is only a candidate; see
+	// secretValues.
+	assignmentRe = regexp.MustCompile(`(?m)^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.\-]*)\s*([=:])\s*["']?([^\s"'#]{8,})`)
+	// Key segments (split on _ . - and case changes) that name a secret.
+	secretKeyRe = regexp.MustCompile(`(?i)^(key|apikey|secret|secrets|token|password|passwd|pass|pwd|credential|credentials|private|auth|cookie|signing|signature|salt|dsn)$`)
+	keySplitRe  = regexp.MustCompile(`[_.\-]+|([a-z])([A-Z])`)
+	plainWordRe = regexp.MustCompile(`^[a-z]+[:.,;]*$`)
+	hexRe       = regexp.MustCompile(`^(0x)?[0-9a-fA-F]+$`)
+	// A URL that carries credentials: scheme://user:pass@host.
+	credURLRe = regexp.MustCompile(`^[a-z][a-z0-9+.\-]*://[^/@\s]+:[^/@\s]+@`)
 	// Credentials with a recognizable prefix, wherever they appear.
 	tokenRe = regexp.MustCompile(`\b(?:sk-|sk_live_|ghp_|gho_|github_pat_|AKIA|xox[abprs]-|AIza|glpat-)[A-Za-z0-9_\-]{8,}`)
 	urlRe   = regexp.MustCompile(`https?://[^\s"'<>()\[\]{}\\]+`)
@@ -53,12 +61,51 @@ func hashAll(vals []string) []string {
 	return out
 }
 
+// secretValues are the values in text that are secrets. An assignment counts
+// when its key names a secret (API_KEY=…, password: …) and the value is not a
+// plain word, or, for KEY=value, when the value looks like a credential: a URL
+// with credentials, or 20+ characters mixing letters and digits that are not
+// just hex (addresses, hashes and commit ids are public). Without this, any
+// "status: expected" line in a command's output made "expected" a secret, and
+// every later command containing the word looked like exfiltration (found by
+// replaying real history with vigil-cli reveal).
 func secretValues(text string) []string {
 	var out []string
 	for _, m := range assignmentRe.FindAllStringSubmatch(text, maxValues) {
-		out = append(out, m[1])
+		key, sep, val := m[1], m[2], m[3]
+		if (secretKey(key) && !plainWordRe.MatchString(val)) || (sep == "=" && looksSecret(val)) {
+			out = append(out, val)
+		}
 	}
 	return append(out, tokenRe.FindAllString(text, maxValues)...)
+}
+
+func secretKey(key string) bool {
+	for _, seg := range strings.Fields(keySplitRe.ReplaceAllString(key, "$1 $2")) {
+		if secretKeyRe.MatchString(seg) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksSecret(v string) bool {
+	if credURLRe.MatchString(v) {
+		return true
+	}
+	if len(v) < 20 || hexRe.MatchString(v) || strings.Contains(v, "://") || strings.HasPrefix(v, "/") || strings.HasPrefix(v, ".") {
+		return false
+	}
+	var letter, digit bool
+	for _, r := range v {
+		switch {
+		case r >= '0' && r <= '9':
+			digit = true
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
+			letter = true
+		}
+	}
+	return letter && digit
 }
 
 // argTokens are the candidate values a call's arguments carry.

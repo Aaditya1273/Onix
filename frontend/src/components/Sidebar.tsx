@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Activity, BarChart3, AlertTriangle,
   Shield, FileCheck, Zap, Cpu, CalendarClock, Settings, HelpCircle,
-  Network, GitBranch, History, ShieldCheck, Scissors, Gauge,
+  Network, GitBranch, History, ShieldCheck, Scissors, Gauge, Sparkles,
 } from 'lucide-react'
 
 const menuItems = [
@@ -23,6 +23,8 @@ const menuItems = [
   { label: 'Autonomy',        href: '/autonomy',         icon: ShieldCheck },
   { label: 'Decisions',       href: '/decisions',        icon: Scissors },
   { label: 'Risk',            href: '/risk',             icon: Gauge },
+  // Served by the Go server itself (internal/web), proxied through /web/*.
+  { label: 'Reveal',          href: '/web/reveal.html',  icon: Sparkles, external: true },
 ]
 
 import { useSession, signOut } from 'next-auth/react'

@@ -26,34 +26,6 @@ type hookInput struct {
 	Agent        string         `json:"vigil_agent"`
 }
 
-// canonicalTool maps a Claude Code tool onto the tool vocabulary the policy
-// layer has a capability model for. Anything else (mcp__* tools) keeps its
-// name and is treated as capable of anything.
-func canonicalTool(name string, in map[string]any) (string, map[string]any) {
-	str := func(k string) string { v, _ := in[k].(string); return v }
-	switch name {
-	case "Bash":
-		return "run_command", map[string]any{"command": str("command")}
-	case "Read":
-		return "read_file", map[string]any{"path": str("file_path")}
-	case "Write", "Edit", "MultiEdit", "NotebookEdit":
-		p := str("file_path")
-		if p == "" {
-			p = str("notebook_path")
-		}
-		return "write_file", map[string]any{"path": p}
-	case "Glob", "LS":
-		return "list_directory", map[string]any{"path": str("path"), "pattern": str("pattern")}
-	case "Grep":
-		return "search_code", map[string]any{"pattern": str("pattern"), "path": str("path")}
-	case "WebFetch":
-		return "web_fetch", map[string]any{"url": str("url"), "prompt": str("prompt")}
-	case "WebSearch":
-		return "web_search", map[string]any{"query": str("query")}
-	}
-	return name, in
-}
-
 // hookReply speaks Claude Code's PreToolUse output: deny, ask, allow, or an
 // empty object for "no opinion, use the normal permission flow".
 func hookReply(decision, reason string) map[string]any {
@@ -153,7 +125,7 @@ func (st *stack) registerHookRoutes(api *mux.Router, budgetLimit float64, ownToo
 			in.Agent = "claude-code"
 		}
 		session := "cc-" + in.SessionID
-		tool, args := canonicalTool(in.ToolName, in.ToolInput)
+		tool, args := firewall.CanonicalTool(in.ToolName, in.ToolInput)
 
 		if in.Event == "PostToolUse" {
 			ok := !failed(in.ToolResponse)

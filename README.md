@@ -5,6 +5,7 @@ Every tool call an AI agent makes is judged against everything the agent has eve
 and autonomy is granted only as far as the graph can prove it is safe.</p>
 
 <p align="center">
+  <a href="#try-it-in-60-seconds"><b>Try it</b></a> ·
   <a href="#5-the-eight-demo-beats"><b>Demo</b></a> ·
   <a href="#6-measurements"><b>Measurements</b></a> ·
   <a href="#3-data-model"><b>Data model</b></a> ·
@@ -23,6 +24,35 @@ and autonomy is granted only as far as the graph can prove it is safe.</p>
 
 > **Name.** VIGIL is the submission name. Two 2026 arXiv papers in this space share it
 > ([Jan 2026](https://www.alphaxiv.org/abs/2601.05755), [Jun 2026](https://www.alphaxiv.org/abs/2606.26524)); this project is unrelated to them.
+
+## Try it in 60 seconds
+
+```bash
+git clone https://github.com/Aaditya1273/Onix && cd Onix
+go run ./cmd/vigil-cli reveal
+```
+
+You need Go and Docker: reveal starts a temporary FalkorDB 6.0.2 container on a loopback port and removes it on exit
+(or set `VIGIL_FALKORDB_URL` to use yours). It reads your Claude Code, Codex and Gemini CLI session logs, replays every
+tool call through VIGIL in the order it happened, and opens a page about **your** agent: how many calls, what would
+have been blocked and the one path that mattered, drawn hop by hop, your autonomy level and the call shapes that would
+already be auto-approved, and what repeated identical calls cost. Nothing leaves your machine; secrets in labels are
+masked.
+
+<p align="center"><img src="docs/img/reveal.png" width="85%" alt="VIGIL reveal: your agent made 22,646 tool calls across 36 sessions"></p>
+
+On the author's last 30 days of Claude Code history: 22,646 calls in 36 sessions; 68 would have been blocked, 575 would
+have asked first (Claude Code's normal prompt, because content from outside reached a shell), 8 would have run with an
+argument redacted; autonomy level 20.1%. Typing the command takes a minute; that replay took 11m17s (it slows as the
+graph grows, see [limitations](#10-known-limitations)). `--since 7d` is quicker. With `VIGIL_FALKORDB_URL` set the graph is kept, and `--no-replay` reopens the page without replaying.
+
+**Reveal found a bug in VIGIL.** The first run on that history reported 2,951 calls stopped and 260 rewritten. Most of
+them traced to ordinary words (`expected`, `generated`, `application/json`) that the secret detector had recorded as
+secrets from `status: expected` lines in a command's output, so every later command containing the word looked like
+exfiltration. The detector now needs a secret-named key or a credential-shaped value, and ignores plain words and
+public hex identifiers ([`secretValues`](internal/firewall/flow.go), `TestSecretValuesIgnoresOrdinaryValues`). The
+second run reported 999 stopped and 29 rewritten, the third the numbers above. The remaining blocks still deserve a look:
+some carry public wallet addresses, which the detector cannot tell from secrets of the same shape.
 
 ## 1. Thesis
 
@@ -65,8 +95,8 @@ never spliced into query text (tested with injection strings round-tripping inta
 | Label | Key properties | Meaning |
 |---|---|---|
 | `Agent` | id | A stable agent identity (the MCP client or harness name) |
-| `Session` | id, started_at | One run of an agent |
-| `Call` | id, ts (ns), tool, repo, caps, decision, stage, ok, package, hidden | One intercepted tool call |
+| `Session` | id, started_at, cost_usd, calls, repeats | One run of an agent (cost and repeats are filled by `reveal` from the harness's own records) |
+| `Call` | id, ts (ns), tool, repo, caps, decision, stage, ok, package, hidden, label, autonomous | One intercepted tool call (`label` is a redacted summary, set only when replaying local history) |
 | `Decision` | id, verdict, stage, reason, model, graph_ms, hash, prev_hash, cut_edges, cut_cost, paths, audit_* | The verdict, hash-chained, with its graph evidence and the sealed audit fields |
 | `Tool` / `ToolVersion` | name, version, changed_at / hash, description, seen_at | A tool and every description it ever had |
 | `Capability` | name | filesystem_read, filesystem_write, exec, network, secret, … |
@@ -134,10 +164,10 @@ sequenceDiagram
 
 ## 4. Every Cypher query
 
-The product runs **54 queries**, one per file in [`internal/graph/queries/`](internal/graph/queries), embedded into the binary at
+The product runs **61 queries**, one per file in [`internal/graph/queries/`](internal/graph/queries), embedded into the binary at
 build time. Each file starts with what it answers and an example `params` line. `vigil-cli check-queries` seeds a
 scratch tenant and executes every file against the running FalkorDB with those params; it reports
-`54/54 queries executed without error` on FalkorDB 6.0.2. The only Cypher outside that directory is
+`61/61 queries executed without error` on FalkorDB 6.0.2. The only Cypher outside that directory is
 index creation (`EnsureSchema`) and the demo seed ([`seed.go`](internal/graph/seed.go)). No APOC, no GDS: graph
 algorithms are FalkorDB's own (`algo.maxFlow`, `algo.pageRank`). Where FalkorDB 6.0.2 behaved unexpectedly, the query
 says so and [FALKORDB_FINDINGS.md](FALKORDB_FINDINGS.md) has the reproduction.
@@ -152,7 +182,7 @@ MERGE (s:Session {id:$session}) ON CREATE SET s.started_at = $ts
 MERGE (a)-[:RAN]->(s)
 MERGE (t:Tool {name:$tool})
 FOREACH (cap IN $capList | MERGE (cp:Capability {name:cap}) MERGE (t)-[:REQUIRES]->(cp))
-CREATE (s)-[:MADE]->(k:Call {id:$id, ts:$ts, tool:$tool, repo:$repo, caps:$caps, decision:$decision, stage:$stage, package:$package})-[:INVOKED]->(t)
+CREATE (s)-[:MADE]->(k:Call {id:$id, ts:$ts, tool:$tool, repo:$repo, caps:$caps, decision:$decision, stage:$stage, package:$package, label:$label})-[:INVOKED]->(t)
 CREATE (k)-[:DECIDED]->(d:Decision {id:$id, verdict:$decision, stage:$stage, reason:$reason, model:$model, graph_ms:$graphMs, hash:$hash, prev_hash:$prev, ts:$ts, cut_edges:$cutEdges, cut_cost:$cutCost, paths:$paths, audit_id:$auditId, audit_ts:$auditTs, audit_ns:$auditNs, audit_agent:$auditAgent, args_hash:$argsHash, cost:$cost})
 FOREACH (h IN $egress | MERGE (v:Value {hash:h}) MERGE (k)-[:ARG_CONTAINS]->(v))
 FOREACH (e IN $predicted | CREATE (k)-[:PREDICTED]->(:PredictedEffect {call:$id, kind:e.kind, name:e.name}))
@@ -690,6 +720,64 @@ RETURN count(d), sum(CASE WHEN p IS NULL OR p.hash <> d.prev_hash THEN 1 ELSE 0 
 
 </details>
 
+<details><summary><b>Reveal: replaying local history</b> · 7 queries</summary>
+
+[`mark_autonomous`](internal/graph/queries/mark_autonomous.cypher): Mark a call the hook would have let through without a prompt (earned autonomy at the time it was made).
+
+```cypher
+MATCH (k:Call {id:$id}) SET k.autonomous = true
+```
+
+[`session_stats`](internal/graph/queries/session_stats.cypher): What a replayed session cost (from the harness's own cost record; -1 when it kept none) and how many of its calls repeated the previous one exactly.
+
+```cypher
+MATCH (s:Session {id:$session})
+SET s.source = $source, s.cost_usd = $cost, s.calls = $calls, s.repeats = $repeats
+```
+
+[`reveal_totals`](internal/graph/queries/reveal_totals.cypher): Reveal: calls, sessions, agents, time span, calls stopped or rewritten, and calls that would have run without a prompt.
+
+```cypher
+MATCH (a:Agent)-[:RAN]->(s:Session)-[:MADE]->(k:Call)-[:DECIDED]->(d:Decision)
+RETURN count(k), count(DISTINCT s), count(DISTINCT a), min(k.ts), max(k.ts),
+       sum(CASE WHEN d.verdict <> 'ALLOW' THEN 1 ELSE 0 END), sum(CASE WHEN d.stage = 'redact' THEN 1 ELSE 0 END),
+       sum(CASE WHEN k.autonomous = true THEN 1 ELSE 0 END)
+```
+
+[`reveal_stages`](internal/graph/queries/reveal_stages.cypher): Reveal: what would have been stopped or rewritten, by verdict and stage.
+
+```cypher
+MATCH (k:Call)-[:DECIDED]->(d:Decision) WHERE d.verdict <> 'ALLOW' OR d.stage = 'redact'
+RETURN d.verdict, d.stage, count(*) ORDER BY count(*) DESC
+```
+
+[`reveal_top`](internal/graph/queries/reveal_top.cypher): Reveal: the decisions that matter most, a secret crossing sessions first, then a redaction, external content into a shell, a package, a rug pull, a person, behavior.
+
+```cypher
+MATCH (s:Session)-[:MADE]->(k:Call)-[:DECIDED]->(d:Decision) WHERE d.verdict <> 'ALLOW' OR d.stage = 'redact'
+RETURN d.id, d.verdict, d.stage, d.reason, k.tool, coalesce(k.label, ''), s.id, k.ts, coalesce(k.repo, ''), coalesce(d.paths, [])
+ORDER BY CASE d.stage WHEN 'exfiltration' THEN 0 WHEN 'redact' THEN 1 WHEN 'provenance' THEN 2 WHEN 'code_graph' THEN 3
+         WHEN 'tool_drift' THEN 4 WHEN 'entity_policy' THEN 5 ELSE 9 END, k.ts
+LIMIT $limit
+```
+
+[`reveal_call`](internal/graph/queries/reveal_call.cypher): One call as the reveal page shows it: tool, redacted label, session, time, repo.
+
+```cypher
+MATCH (s:Session)-[:MADE]->(k:Call {id:$id})
+RETURN k.tool, coalesce(k.label, ''), s.id, k.ts, coalesce(k.repo, '')
+```
+
+[`reveal_spend`](internal/graph/queries/reveal_spend.cypher): Reveal: recorded session cost and exact repeats, for an estimate of what repeated identical calls cost.
+
+```cypher
+MATCH (s:Session) WHERE s.calls > 0
+RETURN count(s), sum(CASE WHEN s.cost_usd >= 0 THEN 1 ELSE 0 END), sum(CASE WHEN s.cost_usd >= 0 THEN s.cost_usd ELSE 0 END),
+       sum(s.repeats), sum(CASE WHEN s.cost_usd >= 0 THEN s.cost_usd * s.repeats / s.calls ELSE 0 END)
+```
+
+</details>
+
 ## 5. The eight demo beats
 
 Each beat is a command in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md), with the Cypher that fires. The replies below are
@@ -1081,6 +1169,7 @@ was added since then:
 | Oct 16 | [`internal/graph/risk.go`](internal/graph/risk.go), [`ledger.go`](internal/graph/ledger.go), `vigil-cli export-ledger` / `verify-ledger`, Risk page | `8c04987` |
 | Oct 16 | [`internal/appserver/ask.go`](internal/appserver/ask.go) ask-the-firewall MCP tools, `Firewall.DryRun`, [`internal/firewall/reputation.go`](internal/firewall/reputation.go) | `2f7acd8` |
 | Oct 16 | [`scripts/measure.py`](scripts/measure.py), [docs/measurements.md](docs/measurements.md), [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | `3b6d8e1`, `220c01c` |
+| Oct 16 | [`internal/reveal/`](internal/reveal) (Claude Code, Codex, Gemini CLI log readers and the replay), `vigil-cli reveal`, [`internal/web/`](internal/web) (the reveal page and the shared renderer), the secret-detector fix reveal surfaced | this commit |
 
 ## 9. AI-assistance disclosure
 
@@ -1108,6 +1197,14 @@ them, and docs/DEMO_SCRIPT.md reproduces each beat.
 - **Shared blocks are trusted.** Any tenant can publish a block to `threat_intel`; quorum or reputation is future work.
 - **The risk weights are a judgement call**, not fitted to loss data.
 - **A dry run never calls a model**: when a real call would go to the judge, `will_this_be_allowed` says so instead.
+- **Earned trust is counted by scan.** `earned_trust` walks every earlier call of the agent before filtering by shape,
+  so its cost grows with history: `GRAPH.PROFILE` on a 20,516-call reveal graph shows about 10 ms per check, and a
+  replay slows as it goes (the reveal of 22,541 real calls fell from about 80 to about 30 calls/s). Live use has the
+  same curve over months. The fix is a per-shape counter updated on each outcome; not built.
+- **Codex and Gemini CLI readers are tested on fixtures**, written from those tools' documented log formats, not on
+  real logs (this machine has none). Claude Code's reader is tested on fixtures and was run on 22,000+ real calls.
+- **A replay is not a rerun.** Reveal replays what happened: a call VIGIL would have stopped still ran, so its effects
+  stay in the graph. It cannot know what the agent would have done instead.
 - **Measured on a laptop** with one client, not under production load.
 
 ## 11. Setup with docker compose
@@ -1134,6 +1231,7 @@ python3 scripts/measure.py --vigil http://localhost:8097 --falkordb localhost:63
 Then:
 
 ```bash
+go run ./cmd/vigil-cli reveal              # your own agent history, replayed (see the top of this README)
 go build -o vigil-cli ./cmd/vigil-cli
 ./vigil-cli init --dir ~/your-project      # installs the Claude Code hook (merges, idempotent)
 #  day one: VIGIL_MODE=observe on the server records everything and blocks nothing

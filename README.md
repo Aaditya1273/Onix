@@ -549,6 +549,59 @@ min cut severed.
   <img src="docs/img/counterfactual.png" width="85%" alt="Decisions page: a blocked dns_update with its terminal cut in red and the Why? answer naming the earlier read">
 </p>
 
+## The ledger is the business
+
+Insurance for what AI agents *do* now exists, and the gap is evidence. In the sources this section relies on:
+AIUC markets agent coverage of up to $50 million; Armilla covers autonomous-agent decisions and tool use;
+[Klaimee (YC)](https://www.ycombinator.com/companies/klaimee) says companies shipping agents have no coverage and no
+third-party proof their agent is safe. Underwriters ask how autonomous systems are governed and how agent traces are
+logged, retained and replayed ([vorplabs liability tracker](https://vorplabs.com/ai-agent-liability),
+[Browne Jacobson](https://www.brownejacobson.com/insights/the-word-august-2026/what-the-openai-incident-means-for-insurers),
+[MATS: underwriting the agent economy](https://matsprogram.org/research/underwriting-the-agent-economy-the-blueprint-for-an-ai-insurance-stack)).
+VIGIL has no relationship with any of these insurers. What it offers is the artifact the question asks for: every
+decision, the graph evidence behind it, and a hash chain anyone can recheck offline.
+
+**Agent Risk Score**, 0 to 100 per agent and for the tenant, computed only from the graph
+([`risk_agents.cypher`](internal/graph/queries/risk_agents.cypher), [`risk_blast.cypher`](internal/graph/queries/risk_blast.cypher),
+formula in [`internal/graph/risk.go`](internal/graph/risk.go)):
+
+```text
+risk = 100 × ( 0.35 · incident_rate                      decisions that were not ALLOW / all decisions
+             + 0.15 · min(1, revocations / 3)            pauses because a tool's description changed (rug pull)
+             + 0.15 · min(1, hidden_effects / 3)         calls that did something their prediction did not cover
+             + 0.15 · min(1, mean_blast_radius / 10)     mean DEPENDS_ON dependents of packages it installed
+             + 0.10 · min(1, cost_cv)                    stddev / mean of executed calls' cost
+             + 0.10 · (1 − model_free_share) )           share of decisions a model had to make
+```
+
+The weights are a judgement call, not fitted to loss data (there is none yet); the inputs are each a graph count,
+so a different underwriter can apply different weights to the same export. A `RiskSnapshot` node per scope per day
+([`risk_snapshot.cypher`](internal/graph/queries/risk_snapshot.cypher)) is written by a daily job and on every
+`GET /api/v1/vigil/risk?days=N`, so history survives restarts.
+
+**The ledger** ([`ledger_export.cypher`](internal/graph/queries/ledger_export.cypher)) is every sealed decision in a
+window, in chain order. Each entry carries the audit record (id, time, agent, session, tool, args hash, verdict, reason,
+model, cost, prev hash, hash) mirrored into the `Decision` node when the decision is sealed, plus its graph evidence:
+decision paths, min-cut edges and cost, predicted and observed effects. The hash chain covers the audit fields; the
+evidence fields are context and are not hashed.
+
+```bash
+curl -s 'localhost:8080/api/v1/vigil/ledger/export?days=7' -o ledger.json   # or the Export Ledger button on /risk
+vigil-cli export-ledger --days 7 --out ledger.json                          # straight from FalkorDB
+vigil-cli verify-ledger ledger.json
+# OK: 3 decisions, hash chain intact
+# after editing one reason in the file:
+# BROKEN at decision 2 of 3: hash mismatch
+```
+
+That output is from a real run (redacted `dns_update`, blocked typosquat). `TestLiveLedgerExportVerifiesAndCatchesTampering`
+asserts the same on every test run. With `VIGIL_CONTROL_TOKEN` set the export endpoint needs the token, so the
+dashboard's plain download link only works in the default local setup; use the CLI or `curl -H 'Authorization: Bearer …'`.
+
+<p align="center">
+  <img src="docs/img/risk.png" width="85%" alt="Risk page: per-agent score with its inputs, daily snapshots, and the Export Ledger button">
+</p>
+
 ## 10. The dashboard
 
 <table><tr>

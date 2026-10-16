@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -383,6 +384,7 @@ func (st *stack) registerRoutes(api *mux.Router, mcpServer *mcp.MCPServer, budge
 	}).Methods("GET", "OPTIONS")
 
 	st.registerDecisionRoutes(api)
+	st.registerLedgerRoutes(api, slog.Default())
 	st.registerGraphTools(mcpServer)
 	st.registerHookRoutes(api, budgetLimit, mcpServer.Tools())
 }

@@ -113,6 +113,8 @@ type Result struct {
 	sig string
 	// pkg is the package an install-shaped call installs.
 	pkg string
+	// argsHash fingerprints the call's arguments for the audit chain.
+	argsHash string
 	// SupplyChain is populated only when a call was blocked by the
 	// compromised-package list (supply_chain.go) — the structured
 	// exposed-services/maintainer/typosquat report an incident responder
@@ -228,6 +230,7 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 		At:        time.Now(),
 	}
 	res.ID = fmt.Sprintf("%s-%d", c.SessionID, res.At.UnixNano())
+	res.argsHash = audit.HashArgs(c.Args)
 	res.Predicted = f.predict(ctx, c)
 	if p := blastRadiusTarget(c); p != "" {
 		res.pkg, _ = splitPkgVersion(p)
@@ -660,12 +663,13 @@ func (f *Firewall) finish(ctx context.Context, span telemetry.Span, sess *Sessio
 	// Audit every decision, not just the blocks. A trail that records only
 	// refusals proves nothing about what was allowed through.
 	var hash, prevHash string
+	var sealed audit.Event
 	if f.deps.Ledger != nil {
 		e, err := f.deps.Ledger.Append(audit.Event{
 			AgentID:   res.SessionID,
 			SessionID: res.SessionID,
 			Tool:      res.Tool,
-			ArgsHash:  audit.HashArgs(nil),
+			ArgsHash:  res.argsHash,
 			Decision:  string(res.Decision),
 			Reason:    res.Reason,
 			ModelUsed: res.ModelUsed,
@@ -677,7 +681,7 @@ func (f *Firewall) finish(ctx context.Context, span telemetry.Span, sess *Sessio
 			// the agent because of it is worse.
 			f.deps.Logger.ErrorContext(ctx, "vigil: audit append failed", slog.String("error", err.Error()))
 		} else {
-			hash, prevHash = e.Hash, e.PrevHash
+			hash, prevHash, sealed = e.Hash, e.PrevHash, e
 		}
 	}
 
@@ -688,7 +692,7 @@ func (f *Firewall) finish(ctx context.Context, span telemetry.Span, sess *Sessio
 		Agent: res.Agent, Session: res.SessionID, Tool: res.Tool, Caps: res.Caps, Repo: res.Repo,
 		Model: res.ModelUsed, GraphMS: res.GraphMS, Egress: res.egress,
 		CutEdges: cutEdges(res.Cut), CutCost: cutCost(res.Cut), Paths: res.GraphPaths,
-		Predicted: predictedIfAllowed(res), Package: res.pkg,
+		Predicted: predictedIfAllowed(res), Package: res.pkg, Audit: sealed,
 		Decision: string(res.Decision), Stage: res.Stage, Reason: res.Reason,
 		Hash: hash, PrevHash: prevHash, At: res.At,
 	})

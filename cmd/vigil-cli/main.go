@@ -19,6 +19,8 @@ func main() {
 	rootCmd.AddCommand(hookCmd())
 	rootCmd.AddCommand(initCmd())
 	rootCmd.AddCommand(checkQueriesCmd())
+	rootCmd.AddCommand(exportLedgerCmd())
+	rootCmd.AddCommand(verifyLedgerCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

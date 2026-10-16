@@ -229,3 +229,27 @@ func TestHashArgsIsOrderIndependent(t *testing.T) {
 		t.Fatal("Expected different arguments to hash differently")
 	}
 }
+
+func TestVerifyEventsDetectsATamperedRecord(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "l.jsonl")
+	l, err := audit.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var evs []audit.Event
+	for i := 0; i < 3; i++ {
+		e, err := l.Append(audit.Event{SessionID: "s", Tool: "t", Decision: "ALLOW", Reason: "ok"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		evs = append(evs, e)
+	}
+	// An export window starts mid-chain: verify from the second event on.
+	if r := audit.VerifyEvents(evs[1:]); !r.OK || r.Count != 2 {
+		t.Fatalf("fresh window: %+v", r)
+	}
+	evs[1].Reason = "allowed by an operator"
+	if r := audit.VerifyEvents(evs); r.OK || r.FailedAt != 2 || r.Reason != "hash mismatch" {
+		t.Fatalf("tampered record not caught: %+v", r)
+	}
+}

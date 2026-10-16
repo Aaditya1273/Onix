@@ -107,3 +107,23 @@ func newID(t time.Time) string {
 	_, _ = rand.Read(b[:])
 	return fmt.Sprintf("%d-%s", t.UTC().UnixNano(), hex.EncodeToString(b[:]))
 }
+
+// ComputeHash is the event's hash from its fields, exactly as Append seals it.
+// Exported so an exported ledger can be re-verified away from the server.
+func (e Event) ComputeHash() string { return e.computeHash() }
+
+// VerifyEvents checks an ordered slice of events: each event's hash must
+// match its fields, and each must name the previous event's hash. The first
+// event's prev_hash is the anchor (the chain may start mid-ledger, as an
+// export window does). FailedAt is 1-indexed.
+func VerifyEvents(events []Event) Report {
+	for i, e := range events {
+		if e.ComputeHash() != e.Hash {
+			return Report{OK: false, Count: i, FailedAt: i + 1, Reason: "hash mismatch"}
+		}
+		if i > 0 && e.PrevHash != events[i-1].Hash {
+			return Report{OK: false, Count: i, FailedAt: i + 1, Reason: "chain break"}
+		}
+	}
+	return Report{OK: true, Count: len(events)}
+}

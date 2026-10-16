@@ -2,7 +2,9 @@ package graph
 
 import (
 	"context"
+
 	"fmt"
+	"github.com/Aaditya1273/Vigil/internal/audit"
 	"sort"
 	"strings"
 	"time"
@@ -115,6 +117,7 @@ type CallRecord struct {
 	Paths                    []string    // the graph paths that justified the decision
 	Predicted                []EffectRef // what an allowed call is expected to touch
 	Package                  string      // the package an install-shaped call installs
+	Audit                    audit.Event // the sealed audit record, mirrored so the ledger can be exported from the graph
 	Hash, PrevHash           string      // the audit ledger's chain, mirrored
 	At                       time.Time
 }
@@ -137,6 +140,8 @@ func (c *Client) RecordCall(r CallRecord) {
 	params := map[string]any{
 		"id": r.ID, "agent": r.Agent, "session": r.Session, "tool": r.Tool, "repo": r.Repo,
 		"caps": CapsKey(r.Caps), "capList": r.Caps, "model": r.Model, "graphMs": r.GraphMS, "egress": r.Egress, "cutEdges": nonNilStrings(r.CutEdges), "cutCost": r.CutCost, "paths": nonNilStrings(r.Paths), "predicted": effectParams(r.Predicted), "package": r.Package,
+		"auditId": r.Audit.ID, "auditTs": auditTS(r.Audit), "auditNs": r.Audit.Timestamp.UnixNano(), "auditAgent": r.Audit.AgentID,
+		"argsHash": r.Audit.ArgsHash, "cost": r.Audit.Cost,
 		"decision": r.Decision, "stage": r.Stage, "reason": r.Reason,
 		// Nanoseconds: a refusal and a clean call in the same millisecond
 		// must still order, or trust resets miscount.
@@ -662,4 +667,11 @@ func nonNilStrings(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+func auditTS(e audit.Event) string {
+	if e.Timestamp.IsZero() {
+		return ""
+	}
+	return e.Timestamp.UTC().Format(time.RFC3339Nano)
 }

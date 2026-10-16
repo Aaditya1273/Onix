@@ -177,7 +177,7 @@ func (c *Client) EnsureSchema(ctx context.Context) error {
 		{"Package", "name"}, {"Maintainer", "name"}, {"Person", "name_lc"},
 		{"Policy", "name"}, {"Fact", "subject_lc"}, {"Decision", "id"},
 		{"FlowSource", "call"}, {"FlowSink", "call"}, {"Effect", "call"}, {"ArgSlot", "call"},
-		{"FlowValue", "call"}, {"FlowRead", "call"}, {"Value", "hash"},
+		{"FlowValue", "call"}, {"FlowRead", "call"}, {"Value", "hash"}, {"Fact", "id"},
 	}
 	for _, ix := range tenant {
 		if err := c.index(ctx, c.graph, ix[0], ix[1]); err != nil {

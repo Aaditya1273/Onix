@@ -179,6 +179,9 @@ func (f *Firewall) predict(ctx context.Context, c Call) []graph.EffectRef {
 	return s.list
 }
 
+// Predict is what a call would touch, without deciding or recording it.
+func (f *Firewall) Predict(ctx context.Context, c Call) []graph.EffectRef { return f.predict(ctx, c) }
+
 // checkHiddenEffects is a behavior signal: this agent's recent calls of this
 // tool did things nobody predicted.
 func (f *Firewall) checkHiddenEffects(ctx context.Context, agent, tool string) (n int64, gf graphFinding) {

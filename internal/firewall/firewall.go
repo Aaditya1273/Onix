@@ -151,6 +151,9 @@ type Deps struct {
 	Compromised *CompromisedList
 	// RecentSize bounds the in-memory decision ring served to the dashboard.
 	RecentSize int
+	// ReputationURLs overrides the scan-time reputation sources by name
+	// ("craftedtrust", "dominion"). Nil means the environment and defaults.
+	ReputationURLs map[string]string
 }
 
 // Firewall is the decision pipeline.
@@ -213,6 +216,13 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 	defer span.End()
 
 	sess := f.sessions.Get(c.SessionID)
+	dry := isDry(ctx)
+	done := func(res Result) Result {
+		if dry {
+			return f.dryFinish(ctx, res)
+		}
+		return f.finish(ctx, span, sess, res)
+	}
 	sess.setAgent(c.Agent)
 	agent := sess.agentID()
 	pol := f.deps.Policies.GetOrDefault(c.SessionID, c.Budget)
@@ -230,6 +240,9 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 		At:        time.Now(),
 	}
 	res.ID = fmt.Sprintf("%s-%d", c.SessionID, res.At.UnixNano())
+	if dry {
+		res.ID = "dry-" + res.ID
+	}
 	res.argsHash = audit.HashArgs(c.Args)
 	res.Predicted = f.predict(ctx, c)
 	if p := blastRadiusTarget(c); p != "" {
@@ -241,7 +254,7 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 	if verdict.Outcome == policy.Block {
 		res.Decision, res.Stage, res.Reason = Block, StageIntent, verdict.Reason
 		res.Message = "Vigil blocked this call: " + verdict.Reason
-		return f.finish(ctx, span, sess, res)
+		return done(res)
 	}
 	graphAllowed := false
 	if verdict.Outcome == policy.Uncertain {
@@ -252,7 +265,7 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 			res.Decision, res.Stage = Block, StageIntent
 			res.Reason = "denied by org policy graph: " + strings.Join(gf.paths, "; ")
 			res.Message = "Vigil blocked this call: " + res.Reason
-			return f.finish(ctx, span, sess, res)
+			return done(res)
 		case "allow":
 			// Earned autonomy: the history resolved what the allowlist could
 			// not, so intent_uncovered does not escalate. Other signals below
@@ -276,7 +289,7 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 					report.Dependents, len(report.ExposedServices), len(report.MaintainerShared), report.BlastRadiusTimeMS)
 			}
 			res.Message = "Vigil blocked this call: " + res.Reason
-			return f.finish(ctx, span, sess, res)
+			return done(res)
 		}
 
 		reason, gf := f.graphPackage(ctx, pkg)
@@ -284,7 +297,7 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 		if reason != "" {
 			res.Decision, res.Stage, res.Reason = Block, StageCodeGraph, reason
 			res.Message = "Vigil blocked this call: " + res.Reason
-			return f.finish(ctx, span, sess, res)
+			return done(res)
 		}
 	}
 
@@ -306,7 +319,7 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 			res.Reason = fmt.Sprintf("%s resolves to entity type %s, denied by policy — aliases: %s",
 				entReport.Name, entReport.EntityType, strings.Join(entReport.ResolvedAliases, ", "))
 			res.Message = "Vigil blocked this call: " + res.Reason
-			return f.finish(ctx, span, sess, res)
+			return done(res)
 		}
 	}
 
@@ -316,7 +329,7 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 	if reason != "" {
 		res.Decision, res.Stage, res.Reason = Pause, StageToolDrift, reason
 		res.Message = "Vigil paused this session for review: " + reason
-		return f.finish(ctx, span, sess, res)
+		return done(res)
 	}
 
 	// --- 2d. Values flowing across calls and sessions -------------------------
@@ -334,7 +347,7 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 		} else {
 			res.Message = "Vigil paused this session for review: " + fv.reason
 		}
-		return f.finish(ctx, span, sess, res)
+		return done(res)
 	}
 	res.RedactTokens = fv.redactTokens
 
@@ -351,19 +364,21 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 		res.Decision, res.Stage = Block, StageForecast
 		res.Reason = fmt.Sprintf("budget exhausted: $%.4f of $%.2f", fc.CurrentCost, fc.Budget)
 		res.Message = "Vigil blocked this call: " + res.Reason
-		return f.finish(ctx, span, sess, res)
+		return done(res)
 	}
 	if fc.State == StateSoftLimit {
 		// Not a block. A projected breach should reroute to something cheaper,
 		// not kill an agent that is still doing useful work.
 		signals = append(signals, "cost_soft_limit")
 		tier = maxTier(tier, llm.TierSuspicious)
-		f.recover(ctx, sess, c, engine.RuleResult{
-			RuleName:        "Projected Budget Breach",
-			Reason:          fmt.Sprintf("projected $%.4f against a $%.2f budget", fc.ProjectedTotal, fc.Budget),
-			Severity:        engine.SeverityMedium,
-			AutomaticAction: engine.ActionTriggerFallback,
-		})
+		if !dry {
+			f.recover(ctx, sess, c, engine.RuleResult{
+				RuleName:        "Projected Budget Breach",
+				Reason:          fmt.Sprintf("projected $%.4f against a $%.2f budget", fc.ProjectedTotal, fc.Budget),
+				Severity:        engine.SeverityMedium,
+				AutomaticAction: engine.ActionTriggerFallback,
+			})
+		}
 	}
 
 	// --- 4. Behavioral plugins -------------------------------------------------
@@ -377,7 +392,7 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 				res.RuleName, res.Severity, res.Reason = v.RuleName, string(v.Severity), v.Reason
 				res.Signals = signals
 				res.Message = "Vigil blocked this call: " + v.Reason
-				return f.finish(ctx, span, sess, res)
+				return done(res)
 			case engine.SeverityHigh:
 				tier = maxTier(tier, llm.TierUncertain)
 				res.RuleName, res.Severity = v.RuleName, string(v.Severity)
@@ -391,6 +406,16 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 	if n, gf := f.checkHiddenEffects(ctx, agent, c.Tool); n > 0 {
 		res.addGraph(gf)
 		signals = append(signals, "hidden_side_effect")
+		tier = maxTier(tier, llm.TierSuspicious)
+	} else {
+		res.addGraph(gf)
+	}
+
+	// Scan-time reputation: an outside scanner rated this tool low. Only ever
+	// raises scrutiny; a high score earns nothing.
+	if low, gf := f.checkReputation(ctx, c.Tool); low {
+		res.addGraph(gf)
+		signals = append(signals, "low_external_reputation")
 		tier = maxTier(tier, llm.TierSuspicious)
 	} else {
 		res.addGraph(gf)
@@ -413,7 +438,7 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 	// --- 5. Nothing raised scrutiny -----------------------------------------
 	if tier == llm.TierNormal {
 		res.Decision, res.Stage, res.Reason = Allow, StageDefault, verdict.Reason
-		return f.finish(ctx, span, sess, res)
+		return done(res)
 	}
 
 	// --- 6. Model judgement, to tighten only, graph already had its say ------
@@ -434,11 +459,18 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 			res.Reason = verdict.Reason + " (no judge configured to adjudicate it)"
 			res.Signals = signals
 			res.Message = "Vigil blocked this call: " + res.Reason
-			return f.finish(ctx, span, sess, res)
+			return done(res)
 		}
 		res.Decision, res.Stage = Allow, StageDefault
 		res.Reason = deterministicReason(signals, verdict.Reason)
-		return f.finish(ctx, span, sess, res)
+		return done(res)
+	}
+
+	if dry {
+		// A dry run never spends a model call; say that one would decide it.
+		res.Decision, res.Stage = Pause, StageJudge
+		res.Reason = "a model would decide this call (signals: " + strings.Join(signals, ", ") + "); a dry run does not call one"
+		return done(res)
 	}
 
 	j, model, err := f.consult(ctx, tier, c, pol, sess, signals)
@@ -454,7 +486,7 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 		} else {
 			res.Decision = Allow
 		}
-		return f.finish(ctx, span, sess, res)
+		return done(res)
 	}
 
 	res.Stage, res.ModelUsed, res.RiskScore = StageJudge, model, j.score()
@@ -475,7 +507,7 @@ func (f *Firewall) Check(ctx context.Context, c Call) Result {
 	default:
 		res.Decision = Allow
 	}
-	return f.finish(ctx, span, sess, res)
+	return done(res)
 }
 
 // judgeBudget bounds the entire escalation stage.
@@ -638,11 +670,7 @@ func (f *Firewall) DropSession(id string) {
 // finish records the decision to telemetry, the audit chain, and the recent
 // ring, then returns it. Every decision passes through here, including ALLOW.
 func (f *Firewall) finish(ctx context.Context, span telemetry.Span, sess *Session, res Result) Result {
-	if res.Decision == Allow && res.Cut != nil && len(res.Cut.Redact) > 0 {
-		res.Stage = StageRedact
-		res.Reason = fmt.Sprintf("allowed after redacting %s: FalkorDB's min cut over this call's influence network (cost %d) severs only those arguments",
-			strings.Join(res.Cut.Redact, ", "), res.Cut.MaxFlow)
-	}
+	res = labelRedact(res)
 	telemetry.RecordDecision(span, string(res.Decision), res.Stage, res.Reason, res.RuleName, res.RiskScore, res.ModelUsed)
 
 	// Record refused attempts in the behavioral history (but never charge for
@@ -714,6 +742,39 @@ func (f *Firewall) finish(ctx context.Context, span telemetry.Span, sess *Sessio
 		)
 	}
 	return res
+}
+
+func labelRedact(res Result) Result {
+	if res.Decision == Allow && res.Cut != nil && len(res.Cut.Redact) > 0 {
+		res.Stage = StageRedact
+		res.Reason = fmt.Sprintf("allowed after redacting %s: FalkorDB's min cut over this call's influence network (cost %d) severs only those arguments",
+			strings.Join(res.Cut.Redact, ", "), res.Cut.MaxFlow)
+	}
+	return res
+}
+
+type dryKey struct{}
+
+func isDry(ctx context.Context) bool { return ctx.Value(dryKey{}) != nil }
+
+// DryRun answers "would this call be allowed?" through the same pipeline and
+// graph queries as Check, but records nothing: no audit event, no Call or
+// Decision node, no session history, no threat publication, no recovery
+// action, no model call. The influence network a cut needs is built in the
+// graph (maxFlow runs there) and dropped again before returning.
+func (f *Firewall) DryRun(ctx context.Context, c Call) Result {
+	return f.Check(context.WithValue(ctx, dryKey{}, true), c)
+}
+
+func (f *Firewall) dryFinish(ctx context.Context, res Result) Result {
+	if f.deps.Graph.Configured() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), graphTimeout)
+		defer cancel()
+		if err := f.deps.Graph.DropCut(ctx, res.ID); err != nil {
+			f.warnGraph(ctx, "drop dry-run cut network", err)
+		}
+	}
+	return labelRedact(res)
 }
 
 // recover fires the self-healing engine for a synthesized violation.

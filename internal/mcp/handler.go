@@ -148,6 +148,14 @@ type BehaviourFn func(sessionID string) any
 // SetBehaviour installs the source for the vigil_agent_dna tool.
 func (s *MCPServer) SetBehaviour(fn BehaviourFn) { s.behaviour = fn }
 
+type sessionKey struct{}
+
+// SessionFrom is the MCP session a tool handler is serving.
+func SessionFrom(ctx context.Context) (ClientSession, bool) {
+	s, ok := ctx.Value(sessionKey{}).(ClientSession)
+	return s, ok
+}
+
 // RegisterTool adds a tool served by another package (the graph tools), on the
 // same governed path as the built-ins. Call during setup, before serving.
 func (s *MCPServer) RegisterTool(t Tool, h ToolHandler) {
@@ -402,7 +410,7 @@ func (s *MCPServer) handleToolsCall(ctx context.Context, id json.RawMessage, par
 	}
 
 	start := time.Now()
-	result, err := handler(ctx, req.Arguments)
+	result, err := handler(context.WithValue(ctx, sessionKey{}, session), req.Arguments)
 	elapsed := time.Since(start)
 
 	// Charge only for work that actually ran.

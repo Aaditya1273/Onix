@@ -116,7 +116,9 @@ func (f *Firewall) checkSupplyChain(ctx context.Context, c Call) (blocked bool, 
 	if !f.deps.Graph.Configured() {
 		return true, nil, pkg
 	}
-	f.deps.Graph.ThreatPublish("package", name)
+	if !isDry(ctx) {
+		f.deps.Graph.ThreatPublish("package", name)
+	}
 	ctx, cancel := context.WithTimeout(ctx, graphTimeout)
 	defer cancel()
 	br, err := f.deps.Graph.GetBlastRadius(ctx, name)

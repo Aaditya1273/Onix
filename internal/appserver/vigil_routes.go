@@ -386,6 +386,7 @@ func (st *stack) registerRoutes(api *mux.Router, mcpServer *mcp.MCPServer, budge
 	st.registerDecisionRoutes(api)
 	st.registerLedgerRoutes(api, slog.Default())
 	st.registerGraphTools(mcpServer)
+	st.registerAskRoutes(api, mcpServer, budgetLimit)
 	st.registerHookRoutes(api, budgetLimit, mcpServer.Tools())
 }
 

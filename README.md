@@ -602,6 +602,83 @@ dashboard's plain download link only works in the default local setup; use the C
   <img src="docs/img/risk.png" width="85%" alt="Risk page: per-agent score with its inputs, daily snapshots, and the Export Ledger button">
 </p>
 
+## Ask the firewall before acting
+
+Three MCP tools let an agent ask VIGIL what it would do, before it does it. They are also served as
+`POST /api/v1/vigil/ask/{tool}` for curl. Code: [`internal/appserver/ask.go`](internal/appserver/ask.go).
+
+| Tool | Answers with | Graph work |
+|---|---|---|
+| `will_this_be_allowed(tool, args)` | the verdict, and the exact PreToolUse reply the Claude Code hook would give (deny, ask, allow, or allow with `updatedInput` redacted) | `Firewall.DryRun`: every stage and graph query of a real call, including building the influence network and running `algo.maxFlow`, then [`cut_drop.cypher`](internal/graph/queries/cut_drop.cypher) |
+| `what_will_this_touch(tool, args)` | predicted files, hosts, packages and env vars; a package's blast radius; the tool's scan-time and runtime reputation | [`effect_history`](internal/graph/queries/effect_history.cypher), blast radius queries, [`reputation_tool`](internal/graph/queries/reputation_tool.cypher), [`reputation_runtime`](internal/graph/queries/reputation_runtime.cypher) |
+| `why_was_this_blocked(decision_id)` | the counterfactual sentence and edge | the `why_*` queries above |
+
+A dry run records nothing: no audit line, no `Call`/`Decision` node, no session history, no shared threat, no recovery
+action, and no model call (when a real call would go to a model, the answer says so instead of spending one).
+`TestLiveDryRunMatchesCheckAndRecordsNothing` checks five beats (redact, terminal block, typosquat, entity, clean): the
+graph's node and edge counts and the audit file are unchanged after each dry run, and the real check that follows
+returns the same decision, stage, reason and redactions. `TestLiveAskReturnsTheHooksVerdict` posts the same calls to the
+hook and to `will_this_be_allowed` and asserts byte-identical hook replies (earned autonomy, typosquat, entity, redact),
+then asks over MCP JSON-RPC.
+
+From the running server (FalkorDB 6.0.2); `summary` verbatim, the `answer` JSON abridged:
+
+```text
+$ curl -s -XPOST localhost:8080/api/v1/vigil/ask/what_will_this_touch \
+    -d '{"tool":"Bash","args":{"command":"pip install reqeusts && cat ~/.aws/credentials"}}'
+summary: run_command is predicted to touch 2 thing(s) (from its arguments and the tool's recorded effects).
+answer.predicted: [{"kind":"file","name":"~/.aws/credentials"},{"kind":"package","name":"reqeusts"}]
+answer.package.paths: ["reqeusts --[TYPOSQUAT_OF]--> requests"]
+
+$ curl -s -XPOST localhost:8080/api/v1/vigil/ask/why_was_this_blocked -d '{"decision_id":"<id from /vigil/graph/decisions>"}'
+summary: If reqeusts were not recorded as a typosquat of requests, this install would have been ALLOWed.
+```
+
+## Scan-time reputation vs runtime reputation
+
+Registries now score MCP servers before you install them: [CraftedTrust](https://mcpservers.org/servers/mcp-craftedtrust-com)
+grades servers from scans, [Dominion Observatory](https://mcpservers.org/servers/dominionobservatory-com) aims to rate them
+from runtime measurements and marks a server `UNRATED` until it has some. That is **scan-time** reputation: what a
+server looked like to someone else. VIGIL's graph holds **runtime** reputation: what this tool's calls did here, which
+calls were refused, which had effects nobody predicted.
+
+VIGIL ingests the first as evidence and never as authority:
+
+- When a tool is registered (`POST /api/v1/vigil/tools`), each scanner is asked about its MCP server in the background.
+  A match is stored as `(:Fact {trust:'EXTERNAL', trust_rank:0, source, score})-[:ABOUT]->(:ToolVersion)` on the tool's
+  **current** version ([`reputation_record.cypher`](internal/graph/queries/reputation_record.cypher)). A rug pull
+  creates a new version, so a score for the old description no longer applies.
+- A score under 50 adds the `low_external_reputation` signal with its graph path, which raises scrutiny (a configured
+  judge sees it; without one the call proceeds with the signal recorded and no autonomy).
+- A score never raises trust. Earned autonomy is computed only from this tenant's clean history (`USER_HISTORY`), and
+  no query that earns trust reads these facts. `TestLiveExternalReputationNeverRaisesTrust` checks that a 97/100 tool
+  gets the same verdict as an unscored twin and earns nothing; a 12/100 one raises the signal; a description change drops
+  the score; and with both scanners down, nothing is stored and nothing breaks.
+- Only an exact server-name match is stored (`sameServer`, after dropping npm scopes and `mcp-`/`-server` affixes).
+  CraftedTrust's search is fuzzy, and attaching another server's score would be worse than none. Dominion's
+  `static_metadata_score` for an `UNRATED` server is, in its own words, not a measured trust score, so it is stored as a
+  label without a score.
+
+`GET /api/v1/vigil/tools/{name}/reputation` puts both side by side (`POST` re-ingests). Real answers from the live
+APIs on 2026-10-16:
+
+| Tool | Scan-time (EXTERNAL) | Runtime here |
+|---|---|---|
+| `mcp__filesystem__read_file` | CraftedTrust 31/100 "F warning" (github.com/cyanheads/filesystem-mcp-server); Dominion UNRATED | 0 calls |
+| `mcp__postgres__query` | CraftedTrust 57/100 "D caution" (github.com/kristofer84/mcp-postgres) | 0 calls |
+| `mcp__github__create_issue` | CraftedTrust: no exact match; Dominion UNRATED | 0 calls |
+
+```text
+$ curl -s -XPOST localhost:8080/api/v1/vigil/ask/will_this_be_allowed \
+    -d '{"tool":"mcp__filesystem__read_file","args":{"path":"notes.md"},"agent":"claude-code","session_id":"cc-rep","repo":"/repo"}'
+summary: ALLOW (default): allowed with deterministic signals noted: low_external_reputation
+answer.graph_paths: ["Fact{trust:EXTERNAL, craftedtrust 31/100} --[ABOUT]--> mcp__filesystem__read_file ToolVersion"]
+answer.hook_reply: {}        (no opinion: Claude Code prompts as usual; no autonomy)
+```
+
+The limit is in that table. Matching is by server **name**, so `filesystem` matched *a* filesystem server, which may
+not be the one you run. Sources are set with `VIGIL_CRAFTEDTRUST_URL` / `VIGIL_DOMINION_URL` (`off` disables one).
+
 ## 10. The dashboard
 
 <table><tr>

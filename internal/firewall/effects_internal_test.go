@@ -23,3 +23,25 @@ func TestPredictAndObserveExtraction(t *testing.T) {
 		t.Fatalf("observed: %s", got)
 	}
 }
+
+func TestReputationMatchesOnlyTheSameServer(t *testing.T) {
+	if got := mcpServerName("mcp__github__create_issue"); got != "github" {
+		t.Fatalf("server name: %q", got)
+	}
+	for _, c := range []struct {
+		ours, theirs string
+		want         bool
+	}{
+		{"github", "GitHub", true},
+		{"github", "github-mcp-server", true},
+		{"github", "@modelcontextprotocol/server-github", true},
+		{"filesystem", "mcp-server-filesystem", true},
+		{"github", "@dojops/mcp", false},
+		{"github", "gitlab", false},
+		{"", "", false},
+	} {
+		if got := sameServer(c.ours, c.theirs); got != c.want {
+			t.Errorf("sameServer(%q, %q) = %v", c.ours, c.theirs, got)
+		}
+	}
+}

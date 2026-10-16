@@ -112,6 +112,29 @@ func failed(v any) bool {
 	return m["error"] != nil
 }
 
+// hookVerdict is the PreToolUse reply for a decided call. The hook and the
+// will_this_be_allowed MCP tool both answer through it.
+func (st *stack) hookVerdict(ctx context.Context, res firewall.Result, agent, repo, tool string, args, input map[string]any) map[string]any {
+	switch res.Decision {
+	case firewall.Block:
+		return hookReply("deny", "Vigil: "+res.Reason)
+	case firewall.Pause:
+		return hookReply("ask", "Vigil: "+res.Reason)
+	}
+	if len(res.RedactTokens) > 0 {
+		// FalkorDB's min cut severed only some arguments: run the call with
+		// those values redacted, in the caller's own argument names.
+		return hookRewrite("Vigil: "+res.Reason, firewall.Redact(input, res.RedactTokens))
+	}
+	// Allowed is not the same as autonomous: skip the human prompt only when
+	// this agent has earned it for this exact shape of call in this repo.
+	// Otherwise Claude Code asks as it normally would.
+	if tr, earned := st.fw.EarnedTrust(ctx, agent, repo, tool, args); earned {
+		return hookReply("allow", "Vigil: earned autonomy, "+strconv.FormatInt(tr.Clean, 10)+" clean runs since the last incident")
+	}
+	return hookReply("", "")
+}
+
 func (st *stack) registerHookRoutes(api *mux.Router, budgetLimit float64, ownTools []mcp.Tool) {
 	// observe: decide and record everything, enforce nothing. The README's
 	// day one: the graph fills, and day two shows what would have been
@@ -151,28 +174,7 @@ func (st *stack) registerHookRoutes(api *mux.Router, budgetLimit float64, ownToo
 			writeJSON(w, http.StatusOK, hookReply("", ""))
 			return
 		}
-		switch res.Decision {
-		case firewall.Block:
-			writeJSON(w, http.StatusOK, hookReply("deny", "Vigil: "+res.Reason))
-		case firewall.Pause:
-			writeJSON(w, http.StatusOK, hookReply("ask", "Vigil: "+res.Reason))
-		default:
-			if len(res.RedactTokens) > 0 {
-				// FalkorDB's min cut severed only some arguments: run the call
-				// with those values redacted, in Claude Code's own argument names.
-				writeJSON(w, http.StatusOK, hookRewrite("Vigil: "+res.Reason, firewall.Redact(in.ToolInput, res.RedactTokens)))
-				return
-			}
-			// Allowed is not the same as autonomous: skip the human prompt
-			// only when this agent has earned it for this exact shape of call
-			// in this repo. Otherwise Claude Code asks as it normally would.
-			tr, earned := st.fw.EarnedTrust(r.Context(), in.Agent, in.Cwd, tool, args)
-			if earned {
-				writeJSON(w, http.StatusOK, hookReply("allow", "Vigil: earned autonomy, "+strconv.FormatInt(tr.Clean, 10)+" clean runs since the last incident"))
-				return
-			}
-			writeJSON(w, http.StatusOK, hookReply("", ""))
-		}
+		writeJSON(w, http.StatusOK, st.hookVerdict(r.Context(), res, in.Agent, in.Cwd, tool, args, in.ToolInput))
 	})).Methods("POST", "OPTIONS")
 
 	// POST /vigil/tools: an MCP gateway (or anything that can see tools/list)
@@ -198,6 +200,11 @@ func (st *stack) registerHookRoutes(api *mux.Router, budgetLimit float64, ownToo
 				changed = append(changed, t.Name)
 			}
 		}
+		names := make([]string, len(tools))
+		for i, t := range tools {
+			names[i] = t.Name
+		}
+		st.ingestMissingReputation(names)
 		writeJSON(w, http.StatusOK, map[string]any{"registered": len(tools), "changed": changed})
 	})).Methods("POST", "OPTIONS")
 

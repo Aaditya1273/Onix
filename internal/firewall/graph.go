@@ -131,7 +131,9 @@ func (f *Firewall) graphPackage(ctx context.Context, pkg string) (reason string,
 	if br.SquatOf == "" {
 		return "", gf
 	}
-	f.deps.Graph.ThreatPublish("package", name)
+	if !isDry(ctx) {
+		f.deps.Graph.ThreatPublish("package", name)
+	}
 	return fmt.Sprintf("package %s is a typosquat of %s", name, br.SquatOf), gf
 }
 

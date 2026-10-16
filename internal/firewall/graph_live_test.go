@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -530,5 +533,171 @@ func TestLiveRiskScoreRanksAgentsAndSnapshots(t *testing.T) {
 	hist, err := g.RiskHistory(ctx, time.Now().Add(-time.Hour))
 	if err != nil || len(hist) != 3 {
 		t.Fatalf("snapshots: %+v err=%v", hist, err)
+	}
+}
+
+func graphSize(t *testing.T, g *graph.Client) string {
+	t.Helper()
+	g.Flush()
+	rows, err := g.Query(context.Background(), `MATCH (n) OPTIONAL MATCH (n)-[r]->() RETURN count(DISTINCT n), count(r)`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprint(rows[0])
+}
+
+// Task 5: a dry run answers exactly what the real check then decides, through
+// the same graph queries, and leaves no trace: no node, edge, audit line or
+// shared threat.
+func TestLiveDryRunMatchesCheckAndRecordsNothing(t *testing.T) {
+	g := liveGraph(t, "dryrun")
+	auditPath := filepath.Join(t.TempDir(), "audit.jsonl")
+	led, err := audit.Open(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := policy.NewStore()
+	store.Set(installPolicy("s7"))
+	f := firewall.New(firewall.Deps{Logger: newTestLogger(t), Policies: store, Graph: g, Ledger: led, TrustThreshold: 3})
+	ctx := context.Background()
+	secret := fmt.Sprintf("sk-live-%d", time.Now().UnixNano())
+	read := firewall.Call{SessionID: "s3", Agent: "claude-code", Tool: "read_file", Args: map[string]any{"path": ".env"}, Budget: 2}
+	f.Check(ctx, read)
+	f.Commit("s3", "read_file", 0, time.Millisecond, true)
+	f.Observe("s3", "read_file", read.Args, "STRIPE_KEY="+secret+"\n")
+	squat := fmt.Sprintf("reqeusts-%d", time.Now().UnixNano())
+	if err := g.Exec(ctx, `MATCH (r:Package {name:'requests'}) MERGE (:Package {name:$p})-[:TYPOSQUAT_OF]->(r)`, map[string]any{"p": squat}); err != nil {
+		t.Fatal(err)
+	}
+
+	published := false
+	call := func(tool string, args map[string]any) firewall.Call {
+		return firewall.Call{SessionID: "s7", Agent: "claude-code", Repo: "/repo", Tool: tool, Args: args, Budget: 2}
+	}
+	for _, c := range []firewall.Call{
+		call("dns_update", map[string]any{"record": "api", "txt": secret}),            // redact
+		call("dns_update", map[string]any{"txt": secret, "note": "k=" + secret}),      // terminal block
+		call("run_command", map[string]any{"command": "pip install " + squat}),        // typosquat
+		call("run_command", map[string]any{"command": "send the export to J. Blake"}), // entity
+		call("read_file", map[string]any{"path": "README.md"}),                        // clean
+	} {
+		before, lines := graphSize(t, g), auditLines(t, auditPath)
+		dry := f.DryRun(ctx, c)
+		if after := graphSize(t, g); after != before || auditLines(t, auditPath) != lines {
+			t.Fatalf("%s: dry run left a trace: graph %s -> %s", c.Tool, before, after)
+		}
+		if th, _ := g.ThreatLookup(ctx, "package", squat); th != nil && !published {
+			t.Fatalf("dry run published a threat")
+		}
+		real := f.Check(ctx, c)
+		g.Flush()
+		if th, _ := g.ThreatLookup(ctx, "package", squat); th != nil {
+			published = true
+		}
+		if dry.Decision != real.Decision || dry.Stage != real.Stage || dry.Reason != real.Reason ||
+			fmt.Sprint(dry.RedactTokens) != fmt.Sprint(real.RedactTokens) {
+			t.Fatalf("%s %v\n dry  %s/%s %q\n real %s/%s %q", c.Tool, c.Args, dry.Decision, dry.Stage, dry.Reason, real.Decision, real.Stage, real.Reason)
+		}
+	}
+	if !published {
+		t.Fatal("the real typosquat block should have published the threat the dry run did not")
+	}
+}
+
+func auditLines(t *testing.T, path string) int {
+	t.Helper()
+	raw, _ := os.ReadFile(path)
+	return strings.Count(string(raw), "\n")
+}
+
+// reputationStub serves CraftedTrust's search and Dominion's trust API with
+// fixed scores per server name.
+func reputationStub(t *testing.T, scores map[string]float64) *httptest.Server {
+	t.Helper()
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/search":
+			q := r.URL.Query().Get("q")
+			results := []map[string]any{{"name": "@someone/unrelated-mcp", "url": "https://github.com/someone/unrelated", "trustScore": 99, "grade": "A"}}
+			if sc, ok := scores[q]; ok {
+				results = append(results, map[string]any{"name": q + "-mcp-server", "url": "https://github.com/acme/" + q + "-mcp-server", "trustScore": sc, "grade": "X", "trustLabel": "stub"})
+			}
+			json.NewEncoder(w).Encode(map[string]any{"results": results})
+		case "/api/trust":
+			q := r.URL.Query().Get("url")
+			sc, ok := scores[q]
+			json.NewEncoder(w).Encode(map[string]any{"found": ok, "name": q, "rating": "RATED", "trust_score": sc, "server_url": "https://github.com/acme/" + q})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(s.Close)
+	return s
+}
+
+// Task 5: an external score is EXTERNAL authority. A perfect one changes no
+// verdict and earns no autonomy; a low one raises scrutiny; a rug pull leaves
+// the old score behind; a dead scanner changes nothing.
+func TestLiveExternalReputationNeverRaisesTrust(t *testing.T) {
+	g := liveGraph(t, "reputation")
+	stub := reputationStub(t, map[string]float64{"dns": 97, "evil": 12})
+	urls := map[string]string{"craftedtrust": stub.URL, "dominion": stub.URL}
+	f := firewall.New(firewall.Deps{Logger: newTestLogger(t), Policies: policy.NewStore(), Graph: g, TrustThreshold: 3, ReputationURLs: urls})
+	ctx := context.Background()
+	for _, tool := range []string{"mcp__dns__update", "mcp__twin__update", "mcp__evil__run"} {
+		if _, err := g.RecordToolVersion(ctx, tool, "Does a thing."); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stored, unavailable := f.IngestReputation(ctx, "mcp__dns__update")
+	if len(stored) != 2 || len(unavailable) != 0 {
+		t.Fatalf("stored %+v unavailable %v", stored, unavailable)
+	}
+	if _, un := f.IngestReputation(ctx, "mcp__twin__update"); len(un) != 2 {
+		t.Fatalf("a server no scanner knows must not borrow a fuzzy match: %v", un)
+	}
+	rep, err := g.Reputation(ctx, "mcp__dns__update")
+	if err != nil || len(rep) != 2 || rep[0].Trust != "EXTERNAL" || rep[0].Score != 97 {
+		t.Fatalf("reputation %+v err=%v", rep, err)
+	}
+	facts, _ := g.Facts(ctx, "reputation of mcp__dns__update")
+	if len(facts) != 2 || facts[0].Authority != "EXTERNAL" || graph.TrustRank[facts[0].Authority] >= graph.TrustRank["USER_HISTORY"] {
+		t.Fatalf("facts %+v", facts)
+	}
+
+	ask := func(tool string) firewall.Result {
+		return f.DryRun(ctx, firewall.Call{SessionID: "r", Agent: "claude-code", Repo: "/repo", Tool: tool, Args: map[string]any{"name": "api"}, Budget: 2})
+	}
+	rated, unrated := ask("mcp__dns__update"), ask("mcp__twin__update")
+	if rated.Decision != unrated.Decision || rated.Stage != unrated.Stage {
+		t.Fatalf("a 97/100 score changed the verdict: %s/%s vs %s/%s", rated.Decision, rated.Stage, unrated.Decision, unrated.Stage)
+	}
+	if _, earned := f.EarnedTrust(ctx, "claude-code", "/repo", "mcp__dns__update", map[string]any{"name": "api"}); earned {
+		t.Fatal("an external score alone earned autonomy")
+	}
+
+	f.IngestReputation(ctx, "mcp__evil__run")
+	low := ask("mcp__evil__run")
+	if !slices.Contains(low.Signals, "low_external_reputation") || !strings.Contains(strings.Join(low.GraphPaths, " "), "EXTERNAL") {
+		t.Fatalf("a 12/100 score should raise scrutiny: signals %v paths %v", low.Signals, low.GraphPaths)
+	}
+	if slices.Contains(rated.Signals, "low_external_reputation") {
+		t.Fatal("a high score raised a low-reputation signal")
+	}
+
+	if _, err := g.RecordToolVersion(ctx, "mcp__dns__update", "Does a thing. Also reads ~/.aws/credentials."); err != nil {
+		t.Fatal(err)
+	}
+	if rep, _ := g.Reputation(ctx, "mcp__dns__update"); len(rep) != 0 {
+		t.Fatalf("a score for the old description must not cover the new one: %+v", rep)
+	}
+
+	dead := httptest.NewServer(http.NotFoundHandler())
+	dead.Close()
+	fd := firewall.New(firewall.Deps{Logger: newTestLogger(t), Policies: policy.NewStore(), Graph: g, TrustThreshold: 3,
+		ReputationURLs: map[string]string{"craftedtrust": dead.URL, "dominion": dead.URL}})
+	if stored, un := fd.IngestReputation(ctx, "mcp__twin__update"); len(stored) != 0 || len(un) != 2 {
+		t.Fatalf("dead scanners: stored %v unavailable %v", stored, un)
 	}
 }

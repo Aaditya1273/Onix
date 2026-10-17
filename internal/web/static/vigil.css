@@ -24,13 +24,35 @@ svg.dag { width: 100%; height: auto; margin: 22px 0 12px; }
 .node.verdict rect { stroke: var(--verdict); stroke-width: 2.5; }
 .node .nlabel { fill: var(--text); font-size: 12.5px; text-anchor: middle; font-family: ui-monospace, monospace; }
 .node .nsub { fill: var(--dim); font-size: 10px; text-anchor: middle; }
-.edge path { fill: none; stroke: var(--faint); stroke-width: 2; }
-.edge.cut path { stroke: var(--cut); stroke-width: 3.5; }
-.edge.verdict path { stroke: var(--verdict); stroke-width: 2.5; }
+.edge path.line { fill: none; stroke: var(--faint); stroke-width: 2; }
+.edge path.hit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; }
+.edge.cut path.line { stroke: var(--cut); stroke-width: 3.5; }
+.edge.verdict path.line { stroke: var(--verdict); stroke-width: 2.5; }
 .elabel { fill: var(--dim); font-size: 11px; text-anchor: middle; font-family: ui-monospace, monospace; paint-order: stroke; stroke: var(--bg); stroke-width: 5px; stroke-linejoin: round; }
 .edge.cut .elabel { fill: var(--cut); font-weight: 700; }
 .arrow-grey { fill: var(--faint); } .arrow-cut { fill: var(--cut); } .arrow-verdict { fill: var(--verdict); }
 .node, .edge { transition: opacity .35s ease; }
+.node rect { transition: stroke .15s, stroke-width .15s; }
+/* Hover: the hovered thing and its neighbours stay, the rest steps back. */
+svg.dag.focus .node:not(.hl):not(.hidden), svg.dag.focus .edge:not(.hl):not(.hidden) { opacity: .16; }
+.node.hl rect { stroke: var(--text); stroke-width: 2.2; }
+.node.verdict.hl rect { stroke: var(--verdict); }
+.edge.hl path.line { stroke-width: 3; }
+.edge.cut.hl path.line { stroke-width: 4.5; }
+.edge.hl .elabel { fill: var(--text); }
+/* Once the path is drawn, data flows along it toward the cut, and the cut pulses. */
+svg.dag.live .edge.grey path.line, svg.dag.live .edge.verdict path.line { stroke-dasharray: 6 6; animation: vg-flow 1s linear infinite; }
+svg.dag.live .edge.cut path.line { animation: vg-pulse 1.8s ease-in-out infinite; }
+@keyframes vg-flow { to { stroke-dashoffset: -24; } }
+@keyframes vg-pulse { 50% { stroke-width: 6; } }
+svg.dag.zoomed { cursor: grab; } svg.dag.dragging { cursor: grabbing; }
+.vg-tip { position: absolute; z-index: 4; pointer-events: none; max-width: 340px; padding: 8px 11px; border-radius: 8px; background: var(--text); color: var(--bg);
+  font: 13px/1.45 "DM Sans", sans-serif; transform: translate(-50%, calc(-100% - 14px)); opacity: 0; transition: opacity .12s; overflow-wrap: anywhere; }
+.vg-tip.on { opacity: 1; }
+.vg-tip.below { transform: translate(-50%, 22px); }
+.vg-tip b { font: 600 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.vg-tip .cut { color: #ff8a80; }
+@media (prefers-reduced-motion: reduce) { svg.dag.live .edge path.line { animation: none; } }
 .hidden { opacity: 0; }
 .why { border-left: 3px solid var(--verdict); padding: 10px 16px; background: var(--panel); font-size: 15px; margin: 6px 0; }
 .ends { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 1100px; margin-top: 12px; }

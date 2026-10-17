@@ -4,42 +4,43 @@
 @font-face { font-family: "DM Sans"; src: url("fonts/DMSans.ttf") format("truetype"); font-weight: 100 1000; font-display: swap; }
 :root {
   --bg: #f2ede7; --panel: #fbf8f4; --line: #e3d9cc; --text: #14100d; --dim: #5e544b; --faint: #8f8478;
+  --gutter: max(24px, calc((100vw - 1120px) / 2)); /* a centered 1120px column */
   --cut: #d62d20; --verdict: #ff6b00; --verdict-dark: #cc5500;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 "DM Sans", -apple-system, "Segoe UI", sans-serif; }
 a { color: var(--text); }
-.screen { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 64px 8vw 96px; border-bottom: 1px solid var(--line); }
+.screen { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 64px var(--gutter) 96px; border-bottom: 1px solid var(--line); }
 .screen.short { min-height: 70vh; }
 .big { font-family: "Epilogue", -apple-system, sans-serif; font-size: 52px; line-height: 1.08; font-weight: 700; letter-spacing: -0.03em; max-width: 1100px; margin: 0 0 18px; }
 .big .n { font-variant-numeric: tabular-nums; }
 .big .verdict { color: var(--verdict); }
 .big .cut { color: var(--cut); }
-.sub { font-size: 14px; color: var(--dim); max-width: 860px; margin: 0 0 8px; }
+.sub { font-size: 15px; color: var(--dim); max-width: 900px; margin: 0 0 8px; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .kicker { font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--faint); margin-bottom: 14px; }
-svg.dag { width: 100%; max-width: 1200px; height: auto; margin: 22px 0 12px; }
+svg.dag { width: 100%; height: auto; margin: 22px 0 12px; }
 .node rect { fill: #fff; stroke: var(--line); stroke-width: 1.5; }
 .node.verdict rect { stroke: var(--verdict); stroke-width: 2.5; }
-.node .nlabel { fill: var(--text); font-size: 12px; text-anchor: middle; font-family: ui-monospace, monospace; }
+.node .nlabel { fill: var(--text); font-size: 12.5px; text-anchor: middle; font-family: ui-monospace, monospace; }
 .node .nsub { fill: var(--dim); font-size: 10px; text-anchor: middle; }
 .edge path { fill: none; stroke: var(--faint); stroke-width: 2; }
 .edge.cut path { stroke: var(--cut); stroke-width: 3.5; }
 .edge.verdict path { stroke: var(--verdict); stroke-width: 2.5; }
-.elabel { fill: var(--dim); font-size: 10.5px; text-anchor: middle; font-family: ui-monospace, monospace; }
+.elabel { fill: var(--dim); font-size: 11px; text-anchor: middle; font-family: ui-monospace, monospace; paint-order: stroke; stroke: var(--bg); stroke-width: 5px; stroke-linejoin: round; }
 .edge.cut .elabel { fill: var(--cut); font-weight: 700; }
 .arrow-grey { fill: var(--faint); } .arrow-cut { fill: var(--cut); } .arrow-verdict { fill: var(--verdict); }
 .node, .edge { transition: opacity .35s ease; }
 .hidden { opacity: 0; }
-.why { border-left: 3px solid var(--verdict); padding: 10px 16px; background: var(--panel); max-width: 980px; font-size: 15px; margin: 6px 0; }
+.why { border-left: 3px solid var(--verdict); padding: 10px 16px; background: var(--panel); font-size: 15px; margin: 6px 0; }
 .ends { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 1100px; margin-top: 12px; }
 .end { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
 .end b { color: var(--dim); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
-table.list { border-collapse: collapse; margin-top: 14px; max-width: 1000px; width: 100%; }
+table.list { border-collapse: collapse; margin-top: 14px; width: 100%; }
 table.list td, table.list th { border-bottom: 1px solid var(--line); padding: 7px 10px; text-align: left; color: var(--dim); }
 table.list th { color: var(--faint); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
 table.list td.v { color: var(--text); }
-.bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; align-items: center; padding: 12px 8vw; background: rgba(242,237,231,.94); border-top: 1px solid var(--line); backdrop-filter: blur(6px); z-index: 5; flex-wrap: wrap; }
+.bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; align-items: center; padding: 12px var(--gutter); background: rgba(242,237,231,.94); border-top: 1px solid var(--line); backdrop-filter: blur(6px); z-index: 5; flex-wrap: wrap; }
 .bar .grow { flex: 1; color: var(--dim); font-size: 13px; }
 button, .btn { background: #fff; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer; text-decoration: none; }
 button:hover, .btn:hover { border-color: var(--dim); }

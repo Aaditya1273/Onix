@@ -45,12 +45,13 @@
     const { layer, cols } = layout(g);
     const ncol = Object.keys(cols).length;
     const maxRows = Math.max(...Object.values(cols).map(c => c.length));
-    const W = Math.max(640, ncol * 260), H = Math.max(160, maxRows * 86 + 30);
+    const W = Math.max(640, ncol * 240), H = Math.max(150, maxRows * 80 + 30);
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.style.maxWidth = W + 'px'; // never drawn larger than life: a small graph stays small
     const pos = {};
     Object.entries(cols).forEach(([c, list]) => {
       list.forEach((id, i) => {
-        pos[id] = { x: 90 + (+c) * ((W - 180) / Math.max(1, ncol - 1)), y: (H / (list.length + 1)) * (i + 1) };
+        pos[id] = { x: 100 + (+c) * ((W - 200) / Math.max(1, ncol - 1)), y: (H / (list.length + 1)) * (i + 1) };
       });
     });
     if (ncol === 1) Object.values(pos).forEach(p => (p.x = W / 2));
@@ -60,14 +61,16 @@
       el('path', { d: 'M0,0 L10,5 L0,10 z', class: 'arrow-' + k }, m);
     });
     const order = g.edges.slice().sort((a, b) => layer[a.from] - layer[b.from]);
+    const labelled = new Set(); // edges fanning into one node with one label are labelled once
     const edgeEls = order.map(e => {
       const a = pos[e.from], b = pos[e.to];
       if (!a || !b) return null;
       const k = e.cut ? 'cut' : e.verdict ? 'verdict' : 'grey';
       const grp = el('g', { class: 'edge hidden ' + k }, svg);
       const mx = (a.x + b.x) / 2;
-      const p = el('path', { d: `M${a.x + 70},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x - 72},${b.y}`, 'marker-end': `url(#arr-${k})` }, grp);
-      if (e.label) {
+      const p = el('path', { d: `M${a.x + 84},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x - 86},${b.y}`, 'marker-end': `url(#arr-${k})` }, grp);
+      if (e.label && !labelled.has(e.to + '|' + e.label)) {
+        labelled.add(e.to + '|' + e.label);
         const t = el('text', { x: mx, y: (a.y + b.y) / 2 - 12, class: 'elabel' }, grp);
         t.textContent = (e.cut ? '✂ ' : '') + e.label;
       }
@@ -77,9 +80,9 @@
     g.nodes.forEach(n => {
       const p = pos[n.id];
       const grp = el('g', { class: 'node hidden ' + (n.kind || ''), transform: `translate(${p.x},${p.y})` }, svg);
-      el('rect', { x: -70, y: -24, width: 140, height: 48, rx: 10 }, grp);
+      el('rect', { x: -84, y: -24, width: 168, height: 48, rx: 8 }, grp);
       const t = el('text', { y: n.sub ? -4 : 5, class: 'nlabel' }, grp);
-      t.textContent = clip(n.label, 22);
+      t.textContent = clip(n.label, 21);
       el('title', {}, grp).textContent = n.label + (n.sub ? '\n' + n.sub : '');
       if (n.sub) {
         const s = el('text', { y: 13, class: 'nsub' }, grp);

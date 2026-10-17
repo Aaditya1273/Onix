@@ -62,6 +62,7 @@
     });
     const order = g.edges.slice().sort((a, b) => layer[a.from] - layer[b.from]);
     const labelled = new Set(); // edges fanning into one node with one label are labelled once
+    const room = Math.max(8, Math.floor(((W - 200) / Math.max(1, ncol - 1) - 168 + 60) / 6.6)); // characters that fit between two columns
     const edgeEls = order.map(e => {
       const a = pos[e.from], b = pos[e.to];
       if (!a || !b) return null;
@@ -74,7 +75,7 @@
       if (e.label && !labelled.has(e.to + '|' + e.label)) {
         labelled.add(e.to + '|' + e.label);
         const t = el('text', { x: mx, y: (a.y + b.y) / 2 - 12, class: 'elabel' }, grp);
-        t.textContent = (e.cut ? '✂ ' : '') + e.label;
+        t.textContent = clip((e.cut ? '✂ ' : '') + e.label, room); // the full label is in the tooltip
       }
       return { e, grp, p };
     });
@@ -91,6 +92,7 @@
       }
       nodeEls[n.id] = grp;
     });
+    edgeEls.forEach(x => x && svg.appendChild(x.grp)); // edges and their labels above the boxes, so a label is never hidden
     hoverable(svg, g, nodeEls, edgeEls.filter(Boolean));
     const show = x => x && x.classList.remove('hidden');
     const done = () => { svg.classList.add('live'); }; // data flows along the edges once the path is drawn

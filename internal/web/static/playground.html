@@ -61,13 +61,18 @@
   .world code { font: 12.5px ui-monospace, monospace; color: var(--dim); }
 
   .empty { border: 1.5px dashed var(--line); border-radius: 12px; padding: 48px 24px; text-align: center; color: var(--faint); font-size: 16px; }
-  .verdict-row { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; margin-bottom: 18px; }
-  .stamp { font: 800 clamp(34px, 5vw, 52px)/1 "Epilogue", sans-serif; letter-spacing: -0.03em; padding: 12px 20px 10px; border-radius: 10px;
+  /* The verdict is one card: the word, what it means, and the counterfactual, read together. */
+  .verdict { background: #fff; border: 1px solid var(--line); border-left: 5px solid var(--text); border-radius: 10px; padding: 18px 22px; margin-bottom: 18px; }
+  .verdict.stop { border-left-color: var(--verdict); }
+  .verdict.bad { border-left-color: var(--cut); }
+  .verdict-row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .verdict .reason { margin: 14px 0 0; padding-top: 14px; border-top: 1px solid var(--line); font-size: 16px; max-width: none; }
+  .stamp { font: 800 22px/1 "Epilogue", sans-serif; letter-spacing: -0.01em; padding: 8px 13px 6px; border-radius: 7px;
            border: 2.5px solid var(--text); color: var(--text); }
   .stamp.stop { background: var(--verdict); border-color: var(--verdict); color: #fff; }
   .stamp.bad { background: var(--cut); border-color: var(--cut); color: #fff; }
-  .what { font: 600 20px/1.3 "DM Sans", sans-serif; margin: 0; }
-  .what small { display: block; font: 400 14px "DM Sans", sans-serif; color: var(--dim); margin-top: 4px; }
+  .what { font: 700 21px/1.25 "Epilogue", sans-serif; letter-spacing: -0.01em; margin: 0; }
+  .what small { display: block; font: 400 14.5px/1.4 "DM Sans", sans-serif; letter-spacing: 0; color: var(--dim); margin-top: 4px; }
   .reason { font-size: 17px; line-height: 1.55; max-width: 72ch; margin: 0 0 22px; }
   .toggle { display: inline-flex; gap: 10px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin: 0 0 20px; cursor: pointer; font-size: 14px; }
   .toggle input { accent-color: var(--verdict); width: 16px; height: 16px; }
@@ -95,14 +100,13 @@
   .graph svg.dag { margin: 8px 0; }
   .cap { color: var(--faint); font-size: 13px; margin: 0 0 28px; }
   h4 { font: 600 16px "DM Sans", sans-serif; margin: 0 0 8px; }
-  .step { display: grid; grid-template-columns: 30px 1fr auto; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); align-items: start; }
-  .who { width: 26px; height: 26px; border-radius: 50%; background: #fff; border: 1px solid var(--line); display: grid; place-items: center; font-size: 12px; font-weight: 600; color: var(--dim); }
+  .step { display: grid; grid-template-columns: 84px 1fr auto; gap: 14px; padding: 14px 8px; border-top: 1px solid var(--line); align-items: baseline; }
+  .who { font-size: 13px; font-weight: 600; color: var(--faint); white-space: nowrap; }
   .step .cmd { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
   .step .out { color: var(--dim); font-size: 13.5px; white-space: pre-wrap; margin-top: 4px; overflow-wrap: anywhere; }
   .tag { font-size: 12.5px; font-weight: 600; padding: 4px 10px; border-radius: 6px; white-space: nowrap; background: #fff; border: 1px solid var(--line); color: var(--dim); }
   .tag.stop { background: var(--verdict); border-color: var(--verdict); color: #fff; }
   .tag.bad { background: var(--cut); border-color: var(--cut); color: #fff; }
-  .tag i { font-style: normal; font-weight: 400; opacity: .8; }
 
   table.feed { width: 100%; border-collapse: collapse; font-size: 14px; }
   table.feed td { padding: 10px 8px; border-top: 1px solid var(--line); vertical-align: top; }
@@ -126,8 +130,11 @@
     header.top .btn { font-size: 14px; white-space: nowrap; }
     .ask { flex-direction: column; }
     .ask button { padding: 12px; }
-    .step { grid-template-columns: 26px 1fr; }
-    .step .tag { grid-column: 2; justify-self: start; }
+    .step { grid-template-columns: 1fr; gap: 6px; }
+    .graph { overflow-x: auto; padding: 8px; }
+    .graph svg.dag { min-width: 640px; }
+    .zoom { position: sticky; left: 0; top: auto; right: auto; justify-content: flex-end; margin-bottom: 4px; }
+    .step .tag { justify-self: start; }
   }
   @media (prefers-reduced-motion: reduce) { .attack, .attack .go { transition: none; } .attack:hover { transform: none; } .stamp.land, .fade, .step.fade, .attack.running::after, .loading i, table.feed tr.fresh td { animation: none; } }
 </style>
@@ -171,7 +178,7 @@
   </section>
 
   <section class="block" id="result-block">
-    <h2>VIGIL's decision</h2>
+    <h2 id="decision-h">VIGIL's decision</h2>
     <p class="hint">The verdict, the path through the graph that decided it, and every step of the session.</p>
     <div id="result"><div class="empty">Pick an attack above. The decision appears here.</div></div>
   </section>
@@ -280,21 +287,25 @@ async function render(t, quick) {
   const s = scenarios.find(x => x.id === t.scenario);
   const [what, more] = STAGE[d.stage] || [d.stage, ''];
   const stampWord = word(d.verdict, d.stage);
+  const tone = t.reached_unsafe_effect ? 'bad' : stopped ? 'stop' : '';
+  $('decision-h').textContent = s ? `VIGIL's decision: ${s.title}` : "VIGIL's decision on your move";
   $('result').innerHTML = `
-    <div class="verdict-row wait" id="vrow">
-      <div class="stamp ${t.reached_unsafe_effect ? 'bad' : stopped ? 'stop' : ''}">${stampWord}</div>
-      <p class="what">${esc(t.reached_unsafe_effect ? 'It got through: ' + d.effect.why : what)}<small>${esc(more)}${t.before_fix ? ' This is the verdict from before the fix.' : ''}${t.new_signal ? ' First catch of this kind.' : ''}</small></p>
+    <div class="verdict ${tone} wait" id="vrow">
+      <div class="verdict-row">
+        <div class="stamp ${tone}">${stampWord}</div>
+        <p class="what">${esc(t.reached_unsafe_effect ? 'It got through: ' + d.effect.why : what)}<small>${esc(more)}${t.before_fix ? ' This is the verdict from before the fix.' : ''}${t.new_signal ? ' First catch of this kind.' : ''}</small></p>
+      </div>
+      <p class="reason wait" id="why">${esc(tidy(d.why || d.reason))}</p>
     </div>
     ${s && s.before_after ? `<label class="toggle"><input type="checkbox" id="before" ${t.before_fix ? 'checked' : ''}> Show the verdict from before we fixed this bug</label>` : ''}
-    <p class="reason wait" id="why">${esc(tidy(d.why || d.reason))}</p>
     <div class="graph"><div class="zoom"><button type="button" id="z-out" aria-label="Zoom out">−</button><button type="button" id="z-in" aria-label="Zoom in">+</button><button type="button" class="fit" id="z-fit">Fit</button></div><svg class="dag" id="sg" role="img" aria-label="The graph path behind this decision"></svg></div>
     <p class="cap">${d.network && d.network.length ? 'The influence network FalkorDB cut with algo.maxFlow; the red edge is the cheapest cut.' : 'The graph path behind this decision.'} Decided in ${Number(d.graph_ms).toFixed(1)} ms of graph time. Hover anything to trace it; zoom with the buttons or Ctrl + scroll, drag to pan.</p>
     <h4>Step by step</h4>
     ${steps.map(x => {
       const st = x.effect.unsafe ? 'bad' : (x.verdict !== 'ALLOW' || x.stage === 'redact') ? 'stop' : '';
-      return `<div class="step wait" data-tool="${esc(x.tool)}" data-s="${esc(x.session.toUpperCase())}"><div class="who" title="session ${esc(x.session)}">${esc(x.session.toUpperCase())}</div>
+      return `<div class="step wait" data-tool="${esc(x.tool)}" data-s="${esc(x.session.toUpperCase())}"><div class="who">Session ${esc(x.session.toUpperCase())}</div>
       <div><div class="cmd">${esc(x.label)}</div><div class="out">${esc(x.note)}${x.executed ? ' → ' + esc(x.effect.output) : ' → not run'}${x.effect.unsafe ? ' · ' + esc(x.effect.why) : ''}</div></div>
-      <span class="tag ${st}">${esc(word(x.verdict, x.stage))} <i>${esc(x.stage)}</i></span></div>`;
+      <span class="tag ${st}" title="${esc((STAGE[x.stage] || [x.stage])[0])}">${esc(word(x.verdict, x.stage))}</span></div>`;
     }).join('')}`;
   if ($('before')) $('before').onchange = e => run({ before: e.target.checked, stay: true });
   const fromNet = d.network && d.network.length;
@@ -321,6 +332,7 @@ async function render(t, quick) {
   const drawn = VG.dag(svg, g, { animate: !quick, stepMs: 200 });
   const z = VG.zoomable(svg);
   $('z-in').onclick = z.in; $('z-out').onclick = z.out; $('z-fit').onclick = z.fit;
+  svg.parentElement.scrollLeft = svg.parentElement.scrollWidth; // on a narrow screen, open at the verdict end
   await drawn;
   reveal($('vrow'), 'fade');
   if (!reduced && !quick) $('vrow').querySelector('.stamp').classList.add('land');

@@ -54,7 +54,7 @@ func TestLiveScenariosReachTheirVerdicts(t *testing.T) {
 	world := "00112233445566778899aabbccddeeff"
 
 	want := map[string]string{
-		"poisoned-tool":     "PAUSE:provenance",
+		"poisoned-tool":     "BLOCK:exfiltration",
 		"rug-pull":          "PAUSE:tool_drift",
 		"typosquat":         "BLOCK:code_graph",
 		"cross-session":     "BLOCK:exfiltration",

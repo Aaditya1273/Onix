@@ -3,6 +3,7 @@ package firewall
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -134,6 +135,37 @@ func argTokens(args map[string]any) []string {
 	return out
 }
 
+// fileNames are the values a file path is matched by: the path and its base
+// name (".env", "credentials"), so a relative reference still matches. The
+// "file:" prefix keeps them apart from literal values, which any shell
+// command carrying them trips; a file name trips only a call that reaches
+// the network.
+// ponytail: base names collide across directories, resolve against the call's cwd if that over-matches.
+func fileNames(p string) []string {
+	p = strings.TrimRight(p, ".,;:")
+	if len(p) < 4 {
+		return nil
+	}
+	out := []string{"file:" + p}
+	if b := filepath.Base(p); b != p && len(b) >= 4 {
+		out = append(out, "file:"+b)
+	}
+	return out
+}
+
+// fileRefs are the path-like tokens of an argument (@.env, ~/.aws/credentials),
+// matched by path and base name as Observe records them.
+func fileRefs(v any) []string {
+	x, _ := v.(string)
+	var out []string
+	for _, t := range argSplitRe.Split(x, -1) {
+		if p := strings.TrimLeft(t, "@<"); strings.ContainsRune(p, '/') || strings.HasPrefix(p, ".") {
+			out = append(out, fileNames(p)...)
+		}
+	}
+	return out
+}
+
 // Observe records what an executed call produced: secret values it read
 // (sensitive) and URLs that arrived from outside (EXTERNAL authority).
 func (f *Firewall) Observe(sessionID, tool string, args map[string]any, output string) {
@@ -142,7 +174,15 @@ func (f *Firewall) Observe(sessionID, tool string, args map[string]any, output s
 	}
 	caps := policy.Categories(tool, args)
 	if hasCap(caps, policy.CatSecret) {
-		f.deps.Graph.RecordValues(sessionID, tool, hashAll(secretValues(output)), true, "TOOL")
+		vals := secretValues(output)
+		if len(vals) > 0 { // a file that held secrets is itself one: it can be sent by name
+			for _, k := range []string{"path", "file_path"} {
+				if p, ok := args[k].(string); ok {
+					vals = append(vals, fileNames(p)...)
+				}
+			}
+		}
+		f.deps.Graph.RecordValues(sessionID, tool, hashAll(vals), true, "TOOL")
 	}
 	if hasCap(caps, policy.CatNetwork) {
 		f.deps.Graph.RecordValues(sessionID, tool, hashAll(urlRe.FindAllString(output, maxValues)), false, "EXTERNAL")
@@ -209,8 +249,12 @@ func (f *Firewall) checkFlows(ctx context.Context, c Call, caps []string, callID
 	perArg := map[string][]string{} // arg key -> its tokens
 	byHash := map[string]string{}   // hash -> literal token
 	var all []string
+	net := hasCap(caps, policy.CatNetwork)
 	for _, k := range keys {
 		toks := argTokens(map[string]any{k: c.Args[k]})
+		if net { // curl -d @.env: a file that held secrets, named in a call that reaches the network
+			toks = append(toks, fileRefs(c.Args[k])...)
+		}
 		perArg[k] = toks
 		for _, t := range toks {
 			byHash[valueHash(t)] = t

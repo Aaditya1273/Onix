@@ -1218,8 +1218,9 @@ real firewall against FalkorDB on the `playground` tenant. The page draws the de
   malicious package was installed, an attacker's script ran in a shell), not by VIGIL's rules. "Caught something new"
   means the first stop with that stage. The page shows the live counts; no number is baked in.
 - **Two scenarios show what the graph adds beyond pattern matching.** In the poisoned-tool attack, the key never
-  appears in the command (`curl … -d @/repo/.env`), so literal matching sees nothing; the URL came from the tool's
-  description, which is external content, so provenance pauses it. In memory laundering, the stored rule reads as the
+  appears in the command (`curl … -d @/repo/.env`), so matching the key sees nothing. When `/repo/.env` was read and
+  returned secrets, its path and name were recorded as sensitive values too, so naming the file in a call that reaches
+  the network is a graph path from that read and the call is blocked as exfiltration. A local `cat .env` is not. In memory laundering, the stored rule reads as the
   agent's own (`TOOL`) but was `DERIVED_FROM` a forum post, so its authority is `EXTERNAL`
   ([`ObserveAuthority`](internal/firewall/flow.go)) and the `curl … | sh` it suggests is paused.
 - **Hosted mode** (`VIGIL_PLAYGROUND=1`) serves the playground and nothing else: no control API, hook, MCP server or

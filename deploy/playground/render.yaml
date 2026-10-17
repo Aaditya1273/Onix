@@ -1,0 +1,14 @@
+# The public playground on Render's free plan: one Docker web service running
+# FalkorDB 6.0.2 (loopback only) and vigil-server in hosted mode, from the same
+# image as deploy/cloudflare. New → Blueprint, Blueprint path: deploy/playground/render.yaml
+services:
+  - type: web
+    name: vigil-playground
+    runtime: docker
+    dockerfilePath: ./deploy/cloudflare/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: PORT # Render routes to $PORT; vigil-server listens on 8080
+        value: "8080"

@@ -87,13 +87,16 @@ func NewPlaygroundServer(addr string, logger *slog.Logger) (*http.Server, error)
 }
 
 // clientKey is what the rate limit counts by. Behind a proxy that sets it
-// (Fly, Railway: VIGIL_TRUST_PROXY=1) the first forwarded address; otherwise
-// the socket's, since a client can write any header it likes. The key is
-// held in memory for a minute and never stored.
+// (Fly, Render and Cloudflare, Railway: VIGIL_TRUST_PROXY=1) the address the
+// edge writes itself, else the first forwarded one; otherwise the socket's,
+// since a client can write any header it likes. The key is held in memory
+// for a minute and never stored.
 func clientKey(r *http.Request, trustProxy bool) string {
 	if trustProxy {
-		if v := r.Header.Get("Fly-Client-IP"); v != "" {
-			return v
+		for _, h := range []string{"Fly-Client-IP", "CF-Connecting-IP"} {
+			if v := r.Header.Get(h); v != "" {
+				return v
+			}
 		}
 		if v := r.Header.Get("X-Forwarded-For"); v != "" {
 			return strings.TrimSpace(strings.Split(v, ",")[0])

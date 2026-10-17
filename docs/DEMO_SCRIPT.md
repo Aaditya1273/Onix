@@ -35,7 +35,7 @@ auto-approved; the repeated-call spend estimate (or "not available"). Cypher: ev
 ## 2. Playground: try to get past it
 
 ```bash
-docker compose --profile playground up -d      # http://localhost:8090
+docker compose --profile playground up -d      # http://localhost:8090, or the live https://vigil-playground.onrender.com
 ```
 
 Click **Cross-session exfiltration** (BLOCK, the cut drawn on the terminal edge), **Memory laundering** (PAUSE: the

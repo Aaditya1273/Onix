@@ -95,7 +95,8 @@
     }
     // Hop by hop: roots first, then each edge and the node it reaches.
     const step = opts.stepMs || 380;
-    Object.entries(layer).filter(([, l]) => l === 0).forEach(([id]) => show(nodeEls[id]));
+    const hasIn = new Set(g.edges.map(e => e.to));
+    g.nodes.filter(n => !hasIn.has(n.id)).forEach(n => show(nodeEls[n.id])); // roots, wherever layout put them
     return new Promise(res => {
       let i = 0;
       const tick = () => {

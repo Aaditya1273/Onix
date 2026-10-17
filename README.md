@@ -50,11 +50,11 @@ have been blocked and the one path that mattered, drawn hop by hop, your autonom
 already be auto-approved, and what repeated identical calls cost. Nothing leaves your machine; secrets in labels are
 masked.
 
-<p align="center"><img src="docs/img/reveal.png" width="85%" alt="VIGIL reveal: your agent made 22,458 tool calls across 36 sessions"></p>
+<p align="center"><img src="docs/img/reveal.png" width="85%" alt="VIGIL reveal: your agent made 22,488 tool calls across 36 sessions"></p>
 
-On the author's last 30 days of Claude Code history (run on 2026-10-17): 22,458 calls in 36 sessions; 59 would have been blocked, 566 would
+On the author's last 30 days of Claude Code history (run on 2026-10-17): 22,488 calls in 36 sessions; 59 would have been blocked, 571 would
 have asked first (Claude Code's normal prompt, because content from outside reached a shell), 8 would have run with an
-argument redacted; autonomy level 19.9%. Typing the command takes a minute; that replay took 11m43s (it slows as the
+argument redacted; autonomy level 19.8%. Typing the command takes a minute; that replay took 11m47s (it slows as the
 graph grows, see [limitations](#10-known-limitations)). `--since 7d` is quicker. With `VIGIL_FALKORDB_URL` set the graph is kept, and `--no-replay` reopens the page without replaying.
 
 **Reveal found a bug in VIGIL.** The first run on that history reported 2,951 calls stopped and 260 rewritten. Most of

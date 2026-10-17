@@ -1,14 +1,17 @@
-/* Dark, one sentence per screen. One accent for the cut, one for the verdict, everything else grey. */
+/* VIGIL brand (frontend/src/app/styles/base.css): warm paper, ink, orange. One accent for the cut, one for the verdict,
+   everything else ink and grey. Fonts are the landing page's, embedded so reveal loads nothing from the network. */
+@font-face { font-family: "Epilogue"; src: url("fonts/Epilogue.ttf") format("truetype"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "DM Sans"; src: url("fonts/DMSans.ttf") format("truetype"); font-weight: 100 1000; font-display: swap; }
 :root {
-  --bg: #0a0c10; --panel: #11151b; --line: #232a33; --text: #e7eaee; --dim: #8b95a1; --faint: #4a535e;
-  --cut: #ff4d4f; --verdict: #f5a524;
+  --bg: #f2ede7; --panel: #fbf8f4; --line: #e3d9cc; --text: #14100d; --dim: #5e544b; --faint: #8f8478;
+  --cut: #d62d20; --verdict: #ff6b00; --verdict-dark: #cc5500;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 "DM Sans", -apple-system, "Segoe UI", sans-serif; }
 a { color: var(--text); }
 .screen { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 64px 8vw 96px; border-bottom: 1px solid var(--line); }
 .screen.short { min-height: 70vh; }
-.big { font-size: 48px; line-height: 1.12; font-weight: 700; letter-spacing: -0.02em; max-width: 1100px; margin: 0 0 18px; }
+.big { font-family: "Epilogue", -apple-system, sans-serif; font-size: 52px; line-height: 1.08; font-weight: 700; letter-spacing: -0.03em; max-width: 1100px; margin: 0 0 18px; }
 .big .n { font-variant-numeric: tabular-nums; }
 .big .verdict { color: var(--verdict); }
 .big .cut { color: var(--cut); }
@@ -16,8 +19,8 @@ a { color: var(--text); }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .kicker { font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--faint); margin-bottom: 14px; }
 svg.dag { width: 100%; max-width: 1200px; height: auto; margin: 22px 0 12px; }
-.node rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
-.node.verdict rect { stroke: var(--verdict); }
+.node rect { fill: #fff; stroke: var(--line); stroke-width: 1.5; }
+.node.verdict rect { stroke: var(--verdict); stroke-width: 2.5; }
 .node .nlabel { fill: var(--text); font-size: 12px; text-anchor: middle; font-family: ui-monospace, monospace; }
 .node .nsub { fill: var(--dim); font-size: 10px; text-anchor: middle; }
 .edge path { fill: none; stroke: var(--faint); stroke-width: 2; }
@@ -36,14 +39,18 @@ table.list { border-collapse: collapse; margin-top: 14px; max-width: 1000px; wid
 table.list td, table.list th { border-bottom: 1px solid var(--line); padding: 7px 10px; text-align: left; color: var(--dim); }
 table.list th { color: var(--faint); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
 table.list td.v { color: var(--text); }
-.bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; align-items: center; padding: 12px 8vw; background: rgba(10,12,16,.92); border-top: 1px solid var(--line); backdrop-filter: blur(6px); z-index: 5; flex-wrap: wrap; }
+.bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; align-items: center; padding: 12px 8vw; background: rgba(242,237,231,.94); border-top: 1px solid var(--line); backdrop-filter: blur(6px); z-index: 5; flex-wrap: wrap; }
 .bar .grow { flex: 1; color: var(--dim); font-size: 13px; }
-button, .btn { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer; text-decoration: none; }
+button, .btn { background: #fff; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer; text-decoration: none; }
 button:hover, .btn:hover { border-color: var(--dim); }
-button.primary { border-color: var(--verdict); color: var(--verdict); }
-input[type=text], textarea { width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font: 15px ui-monospace, monospace; }
+button.primary { background: var(--verdict); border-color: var(--verdict); color: #fff; font-weight: 600; }
+button.primary:hover { background: var(--verdict-dark); border-color: var(--verdict-dark); }
+input[type=text], textarea { width: 100%; background: #fff; color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font: 15px ui-monospace, monospace; }
 input[type=range] { width: 100%; accent-color: var(--verdict); }
 .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); font-size: 12px; margin: 0 6px 6px 0; cursor: pointer; }
-.pill.on { border-color: var(--verdict); color: var(--verdict); }
+.pill:hover { border-color: var(--dim); color: var(--text); }
+.pill.on { border-color: var(--verdict); background: var(--verdict); color: #fff; }
 .error { color: var(--cut); }
+input[type=text]:focus, textarea:focus { outline: none; border-color: var(--verdict); }
+::selection { background: var(--verdict); color: #fff; }
 @media (max-width: 700px) { .big { font-size: 34px; } .ends { grid-template-columns: 1fr; } .screen { padding: 48px 16px 110px; } .bar { padding: 12px 16px; } }

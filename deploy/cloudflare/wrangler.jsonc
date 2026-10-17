@@ -1,0 +1,21 @@
+// The public playground on Cloudflare Containers. From this directory:
+//   npm install && npx wrangler deploy
+{
+  "name": "vigil-playground",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-13",
+  "containers": [
+    {
+      "class_name": "Playground",
+      "image": "./Dockerfile",
+      "image_build_context": "../..",
+      "instance_type": "basic",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "PLAYGROUND", "class_name": "Playground" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Playground"] }],
+  "observability": { "enabled": true }
+}

@@ -14,6 +14,12 @@ The playground is `vigil-server` in hosted mode (`VIGIL_PLAYGROUND=1`) next to a
    `VIGIL_PLAYGROUND=1`, `VIGIL_ORG_ID=playground`, `VIGIL_TRUST_PROXY=1`,
    `VIGIL_FALKORDB_URL=redis://${{FalkorDB.RAILWAY_PRIVATE_DOMAIN}}:6379`, and a public domain.
 
+**Cloudflare:** [`deploy/cloudflare/`](../cloudflare/) runs both in one Container (FalkorDB bound to loopback,
+outbound internet disabled) behind a Worker that sets `X-Forwarded-For` from `CF-Connecting-IP`:
+`cd deploy/cloudflare && npm install && npx wrangler deploy`. The image was built and all six scenarios checked
+locally; the deploy itself needs the Workers Paid plan (Containers are not available on the free plan). The graph
+lives in the instance, so the counter and feed start empty after 30 idle minutes.
+
 These configs have not been deployed from this repository; they follow each platform's documented format.
 
 ## What hosted mode exposes, and what it does not

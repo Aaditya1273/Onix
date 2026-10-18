@@ -1,0 +1,47 @@
+/* The shared graph renderer's styles (internal/web/static/vigil.css), scoped
+   to the playground page so they cannot touch the rest of the dashboard. */
+.vg-graph {
+  --bg: #f5f1ea; --line: #e3d9cc; --text: #14100d; --dim: #5e544b; --faint: #8f8478;
+  --cut: #d62d20; --verdict: #ff6b00;
+  position: relative;
+}
+.vg-graph svg.dag { width: 100%; height: auto; display: block; }
+.vg-graph .node rect { fill: #fff; stroke: var(--line); stroke-width: 1.5; transition: stroke .15s, stroke-width .15s; }
+.vg-graph .node.verdict rect { stroke: var(--verdict); stroke-width: 2.5; }
+.vg-graph .node .nlabel { fill: var(--text); font-size: 12.5px; text-anchor: middle; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.vg-graph .node .nsub { fill: var(--dim); font-size: 10px; text-anchor: middle; }
+.vg-graph .edge path.line { fill: none; stroke: var(--faint); stroke-width: 2; }
+.vg-graph .edge path.hit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; }
+.vg-graph .edge.cut path.line { stroke: var(--cut); stroke-width: 3.5; }
+.vg-graph .edge.verdict path.line { stroke: var(--verdict); stroke-width: 2.5; }
+.vg-graph .elabel { fill: var(--dim); font-size: 11px; text-anchor: middle; font-family: ui-monospace, monospace; paint-order: stroke; stroke: var(--bg); stroke-width: 5px; stroke-linejoin: round; }
+.vg-graph .edge.cut .elabel { fill: var(--cut); font-weight: 700; }
+.vg-graph .arrow-grey { fill: var(--faint); } .vg-graph .arrow-cut { fill: var(--cut); } .vg-graph .arrow-verdict { fill: var(--verdict); }
+.vg-graph .node, .vg-graph .edge { transition: opacity .35s ease; }
+.vg-graph .hidden { opacity: 0; }
+.vg-graph svg.dag.focus .node:not(.hl):not(.hidden), .vg-graph svg.dag.focus .edge:not(.hl):not(.hidden) { opacity: .16; }
+.vg-graph .node.hl rect { stroke: var(--text); stroke-width: 2.2; }
+.vg-graph .node.verdict.hl rect { stroke: var(--verdict); }
+.vg-graph .edge.hl path.line { stroke-width: 3; }
+.vg-graph .edge.cut.hl path.line { stroke-width: 4.5; }
+.vg-graph .edge.hl .elabel { fill: var(--text); }
+.vg-graph svg.dag.live .edge.grey path.line, .vg-graph svg.dag.live .edge.verdict path.line { stroke-dasharray: 6 6; animation: vg-flow 1s linear infinite; }
+.vg-graph svg.dag.live .edge.cut path.line { animation: vg-pulse 1.8s ease-in-out infinite; }
+@keyframes vg-flow { to { stroke-dashoffset: -24; } }
+@keyframes vg-pulse { 50% { stroke-width: 6; } }
+.vg-graph svg.dag.zoomed { cursor: grab; } .vg-graph svg.dag.dragging { cursor: grabbing; }
+.vg-graph .vg-tip { position: absolute; z-index: 4; pointer-events: none; max-width: 340px; padding: 8px 11px; border-radius: 8px; background: var(--text); color: var(--bg);
+  font-size: 13px; line-height: 1.45; transform: translate(-50%, calc(-100% - 14px)); opacity: 0; transition: opacity .12s; overflow-wrap: anywhere; }
+.vg-graph .vg-tip.on { opacity: 1; }
+.vg-graph .vg-tip.below { transform: translate(-50%, 22px); }
+.vg-graph .vg-tip b { font: 600 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.vg-graph .vg-tip .cut { color: #ff8a80; }
+.pg-land { animation: pg-land .45s cubic-bezier(.2, 1.4, .4, 1) both; }
+@keyframes pg-land { from { opacity: 0; transform: scale(1.3) rotate(-3deg); } to { opacity: 1; transform: none; } }
+.pg-in { animation: pg-in .3s ease both; }
+@keyframes pg-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+.pg-running::after { content: ""; position: absolute; left: 0; bottom: 0; height: 3px; width: 40%; background: #ff6b00; animation: pg-run 1s ease-in-out infinite; }
+@keyframes pg-run { from { left: -40%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) {
+  .vg-graph svg.dag.live .edge path.line, .pg-land, .pg-in, .pg-running::after { animation: none; }
+}

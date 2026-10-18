@@ -83,7 +83,23 @@ func NewPlaygroundServer(addr string, logger *slog.Logger) (*http.Server, error)
 	}).Methods("POST")
 	r.PathPrefix("/web/").Handler(web.Handler())
 	r.Handle("/", http.RedirectHandler("/web/playground.html", http.StatusFound))
-	return &http.Server{Addr: addr, Handler: r, ReadTimeout: 10 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second}, nil
+	return &http.Server{Addr: addr, Handler: allowAnyOrigin(r), ReadTimeout: 10 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second}, nil
+}
+
+// allowAnyOrigin lets the dashboard's playground page call this server from
+// its own origin. The API is public, takes no credentials and sets no cookies.
+func allowAnyOrigin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Access-Control-Allow-Origin", "*")
+		h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		h.Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // clientKey is what the rate limit counts by. Behind a proxy that sets it

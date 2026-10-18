@@ -2,11 +2,20 @@ services:
   - type: web
     name: vigil-server
     env: docker
-    dockerfilePath: ./Dockerfile
+    # One container: FalkorDB 6.0.2 on loopback, the demo graph, vigil-server,
+    # and one run of the demo sessions so the dashboard opens on real decisions.
+    dockerfilePath: ./deploy/full/Dockerfile
+    dockerContext: .
     region: oregon
     plan: free
-    healthCheckPath: /api/v1/vigil/stats
+    healthCheckPath: /api/v1/health
     envVars:
+      - key: PORT # vigil-server listens on 8080
+        value: "8080"
+      # Every mutating route (the hook, agent actions, ask, ledger export, MCP
+      # control) needs this bearer token; the dashboard's reads do not.
+      - key: VIGIL_CONTROL_TOKEN
+        generateValue: true
       # ── Required ──────────────────────────────────────────────────────────────
       # The public URL Render assigns to this service (fill after first deploy)
       # e.g. https://vigil-server.onrender.com
@@ -58,11 +67,10 @@ services:
       - key: VIGIL_GEMINI_MODEL_REVIEWER
         value: "gemini-3.5-flash-lite"
 
-      # ── FalkorDB (graph memory) — redis://user:pass@host:port ────────────────
-      # Needs persistence: use a FalkorDB instance with a volume, not a free
-      # tier that deletes idle data, or the memory demo vanishes.
-      - key: VIGIL_FALKORDB_URL
-        sync: false
+      # ── FalkorDB (graph memory) ───────────────────────────────────────────────
+      # The image runs its own FalkorDB on loopback (VIGIL_FALKORDB_URL is set
+      # in the image). It has no volume on the free plan: the graph is rebuilt
+      # from the seed and the demo sessions on every start.
       - key: VIGIL_TRUST_THRESHOLD
         value: "20"
 
@@ -75,3 +83,24 @@ services:
       # ── Audit log ────────────────────────────────────────────────────────────
       - key: VIGIL_AUDIT_PATH
         value: "./vigil-audit.jsonl"
+
+  # The website: landing page, dashboard (with the playground), Connect and docs.
+  - type: web
+    name: vigil-web
+    runtime: node
+    rootDir: frontend
+    region: oregon
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: VIGIL_BACKEND_URL
+        value: https://vigil-server.onrender.com
+      - key: NEXT_PUBLIC_VIGIL_BACKEND_URL
+        value: https://vigil-server.onrender.com
+      - key: NEXT_PUBLIC_VIGIL_WS_URL
+        value: wss://vigil-server.onrender.com/api/v1/vigil/ws
+      - key: NEXT_PUBLIC_PLAYGROUND_URL
+        value: https://vigil-playground.onrender.com
+      - key: AUTH_SECRET
+        generateValue: true

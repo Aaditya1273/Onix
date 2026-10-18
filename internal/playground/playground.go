@@ -144,12 +144,15 @@ func newID() string {
 
 // Canary is the fake key a visitor's world plants in /repo/.env. The page
 // picks a world id on load and shows the key, so a visitor can try to get it
-// out; worlds never share keys.
+// out; worlds never share keys. It is deliberately not shaped like any real
+// provider's credential (no sk_live_ prefix), so it cannot be mistaken for a
+// leaked key by people or scanners; the firewall still treats it as a secret
+// because of where it sits (STRIPE_KEY=...), not because of its shape.
 func Canary(world string) string {
 	if len(world) < 8 || len(world) > 32 || strings.Trim(strings.ToLower(world), "0123456789abcdef") != "" {
 		world = newID()
 	}
-	return "sk_live_pg" + strings.ToLower(world)
+	return "vigil_demo_canary_" + strings.ToLower(world)
 }
 
 // Run plays one attempt in a visitor's world: a scenario by id, or freeform text.

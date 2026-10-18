@@ -320,11 +320,12 @@ func RegisterRoutes(r *mux.Router, api *mux.Router, store *Store, onTokenMinted 
 			clientName = client.ClientName
 		}
 		json.NewEncoder(w).Encode(map[string]any{
-			"request_id":  r.RequestID,
-			"client_name": clientName,
-			"client_id":   r.ClientID,
-			"scope":       r.Scope,
-			"expires_at":  r.ExpiresAt.Format(time.RFC3339),
+			"request_id":   r.RequestID,
+			"client_name":  clientName,
+			"client_id":    r.ClientID,
+			"scope":        r.Scope,
+			"redirect_uri": r.RedirectURI, // where approval sends the code; shown so the user can check it
+			"expires_at":   r.ExpiresAt.Format(time.RFC3339),
 		})
 	}).Methods("GET", "OPTIONS")
 

@@ -98,7 +98,7 @@ export function Sidebar() {
   return (
     <aside className="w-60 border-r border-gray-200/80 flex flex-col h-full shrink-0 select-none" style={{ background: 'var(--paper)' }}>
       <Link href="/" className="h-16 flex items-center gap-2.5 px-5 shrink-0">
-        <img src="/LOGO.png" alt="" className="h-7 w-auto" />
+        <img src="/logo.png" alt="" className="h-7 w-auto" />
         <span className="font-display text-[19px] font-black text-gray-900" style={{ letterSpacing: '-0.04em' }}>VIGIL</span>
       </Link>
 

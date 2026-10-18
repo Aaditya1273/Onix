@@ -75,7 +75,7 @@ export default function LoginPage() {
   return (
     <main className={s.page}>
       <section className={s.left}>
-        <Link href="/" className={s.brand}><img src="/LOGO.png" alt="" /><span>VIGIL</span></Link>
+        <Link href="/" className={s.brand}><img src="/logo-light.png" alt="" /><span>VIGIL</span></Link>
 
         <h1 className={`${s.headline} ${serif.className}`}>Every call, judged before it runs</h1>
         <p className={s.sub}>The firewall for AI agents that remembers what they did.</p>

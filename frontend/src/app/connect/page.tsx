@@ -225,7 +225,7 @@ function ConnectInner() {
             {/* VIGIL Node */}
             <div className="relative z-10 w-[60px] h-[60px] rounded-2xl bg-gradient-to-br from-[#FF6B00] to-[#D97757] border border-orange-400 shadow-xl shadow-orange-500/30 flex items-center justify-center shrink-0">
               <div className="absolute -inset-1 rounded-2xl bg-orange-500/30 animate-pulse-glow pointer-events-none"></div>
-              <img src="/LOGO.png" alt="VIGIL Logo" className="w-[30px] h-auto object-contain brightness-0 invert" />
+              <img src="/logo.png" alt="VIGIL Logo" className="w-[30px] h-auto object-contain brightness-0 invert" />
             </div>
             
           </div>

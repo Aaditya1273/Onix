@@ -37,3 +37,6 @@ scripts/data/
 
 # Python packaging build output
 *.egg-info/
+
+# Source footage for the sign-in page; the web versions live in frontend/public/login
+/*.mp4

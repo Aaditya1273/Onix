@@ -135,6 +135,29 @@ a backtick would be rejected by FalkorDB with an error rather than silently mang
 
 ---
 
+## F6 · 4.22: `STARTS WITH` binds tighter than `+`
+
+**Status:** fixed in 6.0.2; open in 4.22 (FalkorDB Cloud's free tier runs 4.22.0). In openCypher, string concatenation
+binds tighter than `STARTS WITH`, so `a STARTS WITH b + '/'` means `a STARTS WITH (b + '/')`.
+
+```cypher
+RETURN 'ab/c' STARTS WITH 'ab' + '/' AS x
+```
+
+| Version | Result |
+|---|---|
+| 6.0.2 | `true` |
+| 4.22.1 | `"true/"`: parsed as `('ab/c' STARTS WITH 'ab') + '/'` |
+
+Inside a `WHERE` the string result fails the whole query with `Type mismatch: expected Boolean but was String`.
+
+**Impact on VIGIL:** [`effect_diff`](internal/graph/queries/effect_diff.cypher) used the unparenthesized form, so on
+4.22 the hidden side-effect check errored and flagged nothing (`TestLiveHiddenSideEffectIsCaught` failed, and the risk
+score lost its hidden-effect component). The query now writes `STARTS WITH (n + '/')`, which both versions read
+the same way; the full live suite passes on 4.22.1, 6.0.2 and FalkorDB Cloud 4.22.0.
+
+---
+
 ## Observations (not bugs)
 
 - **O1 · PageRank scale differs between versions.** On the same 3-node graph, 4.22.1 returns scores that don't sum

@@ -4,6 +4,6 @@
 MATCH (k:Call {id:$call})-[:OBSERVED]->(o:ObservedEffect)
 OPTIONAL MATCH (k)-[:PREDICTED]->(p:PredictedEffect {kind:o.kind})
 WITH k, o, collect(p.name) AS preds
-WHERE none(n IN preds WHERE n = o.name OR (o.kind = 'file' AND o.name STARTS WITH n + '/'))
+WHERE none(n IN preds WHERE n = o.name OR (o.kind = 'file' AND o.name STARTS WITH (n + '/')))
 SET o.hidden = true, k.hidden = true
 RETURN o.kind, o.name

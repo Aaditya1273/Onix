@@ -26,9 +26,11 @@ import platform
 import random
 import re
 import socket
+import ssl
 import string
 import sys
 import time
+import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -38,9 +40,13 @@ QUERIES = os.path.join(ROOT, "internal", "graph", "queries")
 # --- FalkorDB over RESP ---------------------------------------------------------
 
 class Resp:
-    def __init__(self, host, port):
+    def __init__(self, host, port, user=None, password=None, tls=False):
         self.sock = socket.create_connection((host, port), timeout=10)
+        if tls:
+            self.sock = ssl.create_default_context().wrap_socket(self.sock, server_hostname=host)
         self.f = self.sock.makefile("rb")
+        if password:
+            self.cmd(*(["AUTH", user, password] if user else ["AUTH", password]))
 
     def cmd(self, *args):
         out = [b"*%d\r\n" % len(args)]
@@ -287,13 +293,22 @@ def main():
     ap.add_argument("--sessions", type=int, default=30, help="benign sessions to run")
     ap.add_argument("--fabricated", type=int, default=50, help="fabricated subjects per lookup query")
     ap.add_argument("--out", help="write the report here (markdown)")
+    ap.add_argument("--any-version", action="store_true",
+                    help="run on a FalkorDB other than 6.x (to load demo sessions; the report is not comparable)")
     a = ap.parse_args()
 
-    host, port = a.falkordb.rsplit(":", 1)
-    db = Resp(host, int(port))
+    # host:port, or a redis:// / rediss:// URL with credentials (FalkorDB Cloud)
+    if "://" in a.falkordb:
+        u = urllib.parse.urlparse(a.falkordb)
+        db = Resp(u.hostname, u.port or 6379, urllib.parse.unquote(u.username or "") or None,
+                  urllib.parse.unquote(u.password or "") or None, u.scheme == "rediss")
+        a.falkordb = "%s:%s" % (u.hostname, u.port)  # never print the credentials
+    else:
+        host, port = a.falkordb.rsplit(":", 1)
+        db = Resp(host, int(port))
     graph = "tenant_" + a.tenant
     version = falkordb_version(db)
-    if not version.startswith("6."):
+    if not version.startswith("6.") and not a.any_version:
         sys.exit("FalkorDB %s: these measurements are defined against 6.x" % version)
     if not run_query(db, graph, query_file("facts"), {"subject": "on-call engineer"}):
         sys.exit("graph %s has no demo dataset: run `docker compose run --rm seed` first" % graph)

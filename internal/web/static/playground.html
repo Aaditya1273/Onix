@@ -18,21 +18,29 @@
 
 
   .attacks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-  .attack { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: 8px; padding: 18px 18px 16px;
-            background: #fff; border: 1.5px solid var(--line); border-radius: 10px; min-height: 132px; transition: border-color .15s, transform .15s; }
+  .attack-wrap { position: relative; }
+  .attack { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 16px;
+            background: #fff; border: 1.5px solid var(--line); border-radius: 10px; min-height: 64px; transition: border-color .15s, transform .15s; }
   .attack:hover { border-color: var(--text); transform: translateY(-2px); }
   .attack:focus-visible { outline: 3px solid var(--verdict); outline-offset: 2px; }
   .attack.on { background: var(--text); border-color: var(--text); color: var(--bg); }
-  .attack.on p { color: #cfc6bb; }
   .attack { position: relative; overflow: hidden; }
-  .attack .go { margin-top: auto; font-size: 13px; font-weight: 600; color: var(--verdict); opacity: 0; transform: translateY(4px); transition: opacity .15s, transform .15s; }
+  .attack .go { margin-left: auto; flex-shrink: 0; font-size: 12.5px; font-weight: 600; color: var(--verdict); opacity: 0; transform: translateY(4px); transition: opacity .15s, transform .15s; }
   .attack:hover .go, .attack:focus-visible .go { opacity: 1; transform: none; }
+  /* The description, on hover or keyboard focus; always shown where there is no hover. */
+  .desc { position: absolute; left: 0; right: 0; top: 100%; z-index: 20; margin: 8px 0 0; padding: 12px 16px; border-radius: 10px;
+          background: var(--text); color: #efe8df; font-size: 14px; line-height: 1.45; box-shadow: 0 12px 30px rgba(20, 16, 13, .25);
+          opacity: 0; transform: translateY(4px); pointer-events: none; transition: opacity .15s, transform .15s; }
+  .attack-wrap:hover .desc, .attack-wrap:focus-within .desc { opacity: 1; transform: none; }
+  @media (pointer: coarse) {
+    .desc { position: static; margin-top: 6px; padding: 0; background: none; color: var(--dim); box-shadow: none; opacity: 1; transform: none;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; }
+  }
   .attack.on .go { color: #ffb37a; opacity: 1; transform: none; }
   .attack.running::after { content: ""; position: absolute; left: 0; bottom: 0; height: 3px; width: 40%; background: var(--verdict); animation: pg-run 1s ease-in-out infinite; }
   @keyframes pg-run { from { left: -40%; } to { left: 100%; } }
   @media (hover: none) { .attack .go { opacity: 1; transform: none; } }
-  .attack h3 { font: 700 19px/1.2 "Epilogue", sans-serif; letter-spacing: -0.01em; margin: 0; }
-  .attack p { margin: 0; color: var(--dim); font-size: 14px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .attack h3 { font: 700 17px/1.2 "Epilogue", sans-serif; letter-spacing: -0.01em; margin: 0; }
 
   .own { margin-top: 28px; }
   .own h3 { font: 600 17px "DM Sans", sans-serif; margin: 0 0 10px; }
@@ -48,17 +56,26 @@
 
   .empty { border: 1.5px dashed var(--line); border-radius: 12px; padding: 48px 24px; text-align: center; color: var(--faint); font-size: 16px; }
   /* The verdict is one card: the word, what it means, and the counterfactual, read together. */
-  .verdict { background: #fff; border: 1px solid var(--line); border-left: 5px solid var(--text); border-radius: 10px; padding: 18px 22px; margin-bottom: 18px; }
-  .verdict.stop { border-left-color: var(--verdict); }
-  .verdict.bad { border-left-color: var(--cut); }
-  .verdict-row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
-  .verdict .reason { margin: 14px 0 0; padding-top: 14px; border-top: 1px solid var(--line); font-size: 16px; max-width: none; }
-  .stamp { font: 800 22px/1 "Epilogue", sans-serif; letter-spacing: -0.01em; padding: 8px 13px 6px; border-radius: 7px;
+  .verdict-row { position: relative; z-index: 5; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 18px; }
+  /* The full explanation sits behind an (i): on hover or keyboard focus, with a copy button. */
+  .info { position: relative; display: inline-flex; }
+  .info-btn { width: 24px; height: 24px; padding: 0; border-radius: 50%; display: grid; place-items: center; background: #fff; border: 1px solid var(--line);
+              color: var(--dim); font: italic 700 13px/1 Georgia, serif; cursor: help; }
+  .info-btn:hover { border-color: var(--text); color: var(--text); }
+  .info-pop { position: absolute; left: 50%; top: 100%; z-index: 30; transform: translateX(-50%); padding-top: 8px; width: min(420px, 80vw);
+              visibility: hidden; opacity: 0; transition: opacity .15s, visibility .15s; }
+  .info:hover .info-pop, .info:focus-within .info-pop { visibility: visible; opacity: 1; }
+  .info-card { display: block; background: var(--text); color: #efe8df; border-radius: 12px; padding: 14px 16px; font-size: 14px; line-height: 1.5;
+               box-shadow: 0 12px 30px rgba(20, 16, 13, .3); }
+  .info-card > span { display: block; }
+  .info-copy { margin-top: 10px; display: inline-block; padding: 5px 10px; border-radius: 6px; background: transparent; color: #fff;
+               border: 1px solid rgba(255, 255, 255, .25); font: 600 12px "DM Sans", sans-serif; cursor: pointer; }
+  .info-copy:hover { background: rgba(255, 255, 255, .1); }
+  .stamp { font: 800 15px/1 "Epilogue", sans-serif; letter-spacing: 0; padding: 6px 10px 5px; border-radius: 6px;
            border: 2.5px solid var(--text); color: var(--text); }
   .stamp.stop { background: var(--verdict); border-color: var(--verdict); color: #fff; }
   .stamp.bad { background: var(--cut); border-color: var(--cut); color: #fff; }
-  .what { font: 700 21px/1.25 "Epilogue", sans-serif; letter-spacing: -0.01em; margin: 0; }
-  .what small { display: block; font: 400 14.5px/1.4 "DM Sans", sans-serif; letter-spacing: 0; color: var(--dim); margin-top: 4px; }
+  .what { font: 700 17px/1.3 "Epilogue", sans-serif; letter-spacing: -0.01em; margin: 0; }
   .reason { font-size: 17px; line-height: 1.55; max-width: 72ch; margin: 0 0 22px; }
   .toggle { display: inline-flex; gap: 10px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin: 0 0 20px; cursor: pointer; font-size: 14px; }
   .toggle input { accent-color: var(--verdict); width: 16px; height: 16px; }
@@ -263,12 +280,16 @@ async function render(t, quick) {
   const tone = t.reached_unsafe_effect ? 'bad' : stopped ? 'stop' : '';
   $('decision-h').textContent = s ? `VIGIL's decision: ${s.title}` : "VIGIL's decision on your move";
   $('result').innerHTML = `
-    <div class="verdict ${tone} wait" id="vrow">
-      <div class="verdict-row">
-        <div class="stamp ${tone}">${stampWord}</div>
-        <p class="what">${esc(t.reached_unsafe_effect ? 'It got through: ' + d.effect.why : what)}<small>${esc(more)}${t.before_fix ? ' This is the verdict from before the fix.' : ''}${t.new_signal ? ' First catch of this kind.' : ''}</small></p>
-      </div>
-      <p class="reason wait" id="why">${esc(tidy(d.why || d.reason))}</p>
+    <div class="verdict-row wait" id="vrow">
+      <div class="stamp ${tone}">${stampWord}</div>
+      <p class="what">${esc(t.reached_unsafe_effect ? 'It got through: ' + d.effect.why : what)}</p>
+      <span class="info">
+        <button type="button" class="info-btn" aria-label="Why this verdict" aria-describedby="why-pop">i</button>
+        <span class="info-pop" id="why-pop" role="tooltip"><span class="info-card">
+          <span id="why-text">${esc([more, tidy(d.why || d.reason), t.before_fix ? 'This is the verdict from before the fix.' : '', t.new_signal ? 'First catch of this kind.' : ''].filter(Boolean).join(' '))}</span>
+          <button type="button" class="info-copy" id="why-copy">Copy</button>
+        </span></span>
+      </span>
     </div>
     ${s && s.before_after ? `<label class="toggle"><input type="checkbox" id="before" ${t.before_fix ? 'checked' : ''}> Show the verdict from before we fixed this bug</label>` : ''}
     <div class="graph"><svg class="dag" id="sg" role="img" aria-label="The graph path behind this decision"></svg></div>
@@ -280,6 +301,7 @@ async function render(t, quick) {
       <div><div class="cmd">${esc(x.label)}</div><div class="out">${esc(x.note)}${x.executed ? ' → ' + esc(x.effect.output) : ' → not run'}${x.effect.unsafe ? ' · ' + esc(x.effect.why) : ''}</div></div>
       <span class="tag ${st}" title="${esc((STAGE[x.stage] || [x.stage])[0])}">${esc(word(x.verdict, x.stage))}</span></div>`;
     }).join('')}`;
+  $('why-copy').onclick = e => VG.copy($('why-text').textContent, e.target);
   if ($('before')) $('before').onchange = e => run({ before: e.target.checked, stay: true });
   const fromNet = d.network && d.network.length;
   let g = fromNet ? VG.fromNetwork(d.network) : VG.fromPaths(d.paths);
@@ -307,8 +329,6 @@ async function render(t, quick) {
   await drawn;
   reveal($('vrow'), 'fade');
   if (!reduced && !quick) $('vrow').querySelector('.stamp').classList.add('land');
-  await wait(250);
-  reveal($('why'), 'fade');
 }
 
 $('ask').onsubmit = e => { e.preventDefault(); pick(''); run(); };
@@ -332,7 +352,7 @@ $('share').onclick = e => {
 
 (async () => {
   try { scenarios = (await VG.getJSON('/api/v1/playground/scenarios')).scenarios; } catch (_) {}
-  $('attacks').innerHTML = scenarios.map(s => `<button class="attack" type="button" data-id="${s.id}"><h3>${esc(s.title)}</h3><p>${esc(s.blurb)}</p><span class="go">Run this attack</span></button>`).join('')
+  $('attacks').innerHTML = scenarios.map(s => `<div class="attack-wrap"><button class="attack" type="button" data-id="${s.id}" aria-describedby="d-${s.id}"><h3>${esc(s.title)}</h3><span class="go">Run</span></button><p class="desc" id="d-${s.id}" role="tooltip">${esc(s.blurb)}</p></div>`).join('')
     || '<div class="empty">The sandbox is waking up (free hosting sleeps when idle). Reload in a minute.</div>';
   document.querySelectorAll('.attack').forEach(p => (p.onclick = () => { $('input').value = ''; pick(p.dataset.id); run(); }));
   const q = new URLSearchParams(location.search);

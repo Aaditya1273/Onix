@@ -2,7 +2,7 @@
 
 import Script from 'next/script'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link2 } from 'lucide-react'
+import { Link2, Info, Copy, Check } from 'lucide-react'
 import './graph.css'
 
 // The public playground (VIGIL_PLAYGROUND=1): the real firewall on its own
@@ -74,6 +74,33 @@ function Count({ n, className }: { n: number; className?: string }) {
     return () => cancelAnimationFrame(raf)
   }, [n])
   return <span className={className}>{shown.toLocaleString('en-US')}</span>
+}
+
+// The full explanation behind a verdict: on hover or keyboard focus of the (i),
+// with a button to copy it. The popover stays open while the pointer is on it.
+function Why({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { /* clipboard blocked */ }
+  }
+  return (
+    <span className="group relative inline-flex">
+      <button type="button" aria-label="Why this verdict" aria-describedby="why-pop"
+        className="grid place-items-center w-6 h-6 rounded-full border border-gray-300 text-gray-500 hover:border-gray-900 hover:text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500">
+        <Info className="w-3.5 h-3.5" />
+      </button>
+      <span id="why-pop" role="tooltip"
+        className="invisible opacity-0 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 transition-opacity duration-150 absolute left-1/2 top-full z-30 -translate-x-1/2 pt-2 w-[min(420px,80vw)]">
+        <span className="block rounded-xl bg-gray-900 p-4 text-left shadow-xl">
+          <span className="block text-[13.5px] leading-relaxed text-gray-100">{text}</span>
+          <button type="button" onClick={copy}
+            className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-white/20 px-2.5 py-1 text-xs font-medium text-white hover:bg-white/10">
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}{copied ? 'Copied' : 'Copy'}
+          </button>
+        </span>
+      </span>
+    </span>
+  )
 }
 
 export default function PlaygroundPage() {
@@ -223,13 +250,19 @@ export default function PlaygroundPage() {
         {scenarios.map(s => {
           const on = current === s.id
           return (
-            <button key={s.id} type="button" disabled={busy}
-              onClick={() => { setInput(''); run(s.id, '') }}
-              className={`group relative overflow-hidden text-left rounded-xl border-[1.5px] p-4 min-h-[128px] flex flex-col gap-2 transition-all duration-150 focus-visible:outline focus-visible:outline-3 focus-visible:outline-orange-500 ${on ? 'bg-gray-900 border-gray-900 text-white' : 'bg-white border-gray-200 hover:border-gray-900 hover:-translate-y-0.5'} ${on && busy ? 'pg-running' : ''}`}>
-              <h3 className="font-display text-[17px] font-bold leading-tight">{s.title}</h3>
-              <p className={`text-[13.5px] leading-snug line-clamp-3 ${on ? 'text-gray-300' : 'text-gray-500'}`}>{s.blurb}</p>
-              <span className={`mt-auto text-[13px] font-semibold ${on ? 'text-orange-300' : 'text-orange-600 opacity-0 group-hover:opacity-100 transition-opacity'}`}>Run this attack</span>
-            </button>
+            <div key={s.id} className="group relative">
+              <button type="button" disabled={busy} aria-describedby={`desc-${s.id}`}
+                onClick={() => { setInput(''); run(s.id, '') }}
+                className={`relative w-full overflow-hidden text-left rounded-xl border-[1.5px] px-4 py-3.5 min-h-[64px] flex items-center gap-3 transition-all duration-150 focus-visible:outline focus-visible:outline-3 focus-visible:outline-orange-500 ${on ? 'bg-gray-900 border-gray-900 text-white' : 'bg-white border-gray-200 hover:border-gray-900 hover:-translate-y-0.5'} ${on && busy ? 'pg-running' : ''}`}>
+                <h3 className="font-display text-[16px] font-bold leading-tight">{s.title}</h3>
+                <span className={`ml-auto shrink-0 text-[12.5px] font-semibold ${on ? 'text-orange-300' : 'text-orange-600 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity'}`}>Run</span>
+              </button>
+              {/* The description, on hover or keyboard focus; always shown where there is no hover. */}
+              <p id={`desc-${s.id}`} role="tooltip"
+                className="pointer-events-none absolute left-0 right-0 top-full z-20 mt-2 rounded-xl bg-gray-900 px-4 py-3 text-[13.5px] leading-snug text-gray-100 shadow-xl opacity-0 translate-y-1 transition-all duration-150 group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:translate-y-0 [@media(pointer:coarse)]:static [@media(pointer:coarse)]:mt-1.5 [@media(pointer:coarse)]:bg-transparent [@media(pointer:coarse)]:p-0 [@media(pointer:coarse)]:text-gray-500 [@media(pointer:coarse)]:shadow-none [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:translate-y-0 [@media(pointer:coarse)]:line-clamp-2">
+                {s.blurb}
+              </p>
+            </div>
           )
         })}
       </div>
@@ -269,15 +302,10 @@ export default function PlaygroundPage() {
 
         {trace && d && (
           <>
-            <div className={`rounded-xl bg-white border border-gray-200 border-l-[5px] px-5 py-4 mb-4 transition-opacity ${landed ? 'opacity-100' : 'opacity-0'} ${tone === 'red' ? 'border-l-red-600' : tone === 'orange' ? 'border-l-orange-600' : 'border-l-gray-900'}`}>
-              <div className="flex flex-wrap items-center gap-3">
-                <span className={`font-display text-xl font-extrabold px-3 py-1.5 rounded-lg ${landed ? 'pg-land' : ''} ${tone === 'red' ? 'bg-red-600 text-white' : tone === 'orange' ? 'bg-orange-600 text-white' : 'border-2 border-gray-900 text-gray-900'}`}>{word(d.verdict, d.stage)}</span>
-                <div>
-                  <p className="font-display text-lg font-bold text-gray-900 leading-tight">{trace.reached_unsafe_effect ? 'It got through: ' + d.effect.why : (STAGE[d.stage] || [d.stage])[0]}</p>
-                  <p className="text-sm text-gray-500">{(STAGE[d.stage] || ['', ''])[1]}{trace.before_fix ? ' This is the verdict from before the fix.' : ''}{trace.new_signal ? ' First catch of this kind.' : ''}</p>
-                </div>
-              </div>
-              <p className="mt-3 pt-3 border-t border-gray-100 text-[15px] text-gray-800">{tidy(d.why || d.reason)}</p>
+            <div className={`flex flex-wrap items-center gap-3 mb-4 transition-opacity ${landed ? 'opacity-100' : 'opacity-0'}`}>
+              <span className={`font-display text-[15px] font-extrabold px-2.5 py-1 rounded-md ${landed ? 'pg-land' : ''} ${tone === 'red' ? 'bg-red-600 text-white' : tone === 'orange' ? 'bg-orange-600 text-white' : 'border-2 border-gray-900 text-gray-900'}`}>{word(d.verdict, d.stage)}</span>
+              <span className="font-display text-[17px] font-bold text-gray-900">{trace.reached_unsafe_effect ? 'It got through: ' + d.effect.why : (STAGE[d.stage] || [d.stage])[0]}</span>
+              <Why text={[(STAGE[d.stage] || ['', ''])[1], tidy(d.why || d.reason), trace.before_fix ? 'This is the verdict from before the fix.' : '', trace.new_signal ? 'First catch of this kind.' : ''].filter(Boolean).join(' ')} />
             </div>
 
             {scen?.before_after && (

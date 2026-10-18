@@ -3,6 +3,13 @@
 # (scripts/measure.py: benign sessions and the attack beats, through the hook).
 # Set VIGIL_CONTROL_TOKEN: the hook and every mutating route then need it.
 set -e
+# Never serve the control routes open: with no token configured, make one
+# nobody knows. Writes then need the Render-set token, or nothing writes.
+if [ -z "$VIGIL_CONTROL_TOKEN" ]; then
+  VIGIL_CONTROL_TOKEN=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  echo "VIGIL_CONTROL_TOKEN was not set: generated one for this run; set it in the host to call the hook"
+fi
+export VIGIL_CONTROL_TOKEN
 redis-server --bind 127.0.0.1 --protected-mode no --daemonize yes --loadmodule /var/lib/falkordb/bin/falkordb.so $FALKORDB_ARGS
 until redis-cli ping >/dev/null 2>&1; do sleep 0.2; done
 /app/vigil-cli graph-seed

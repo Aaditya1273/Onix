@@ -79,8 +79,8 @@ body {
    of the 8 dashboard pages importing a heading class individually. */
 .dashboard-shell h1 {
   font-family: 'Epilogue', -apple-system, sans-serif;
-  font-weight: 800;
-  letter-spacing: -0.02em;
+  font-weight: 900;
+  letter-spacing: -0.035em;
   /* One title scale on every page: unlayered, so it outranks a page's size utility. */
   font-size: 28px;
   line-height: 1.15;

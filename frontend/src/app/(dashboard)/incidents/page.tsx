@@ -1,5 +1,6 @@
 'use client'
 
+import { usePageTab } from '@/lib/usePageTab'
 import Link from 'next/link'
 import { useResource, type Resource } from '@/lib/useResource'
 import { verdictOf, stageLabel, isStopped } from '@/lib/verdict'
@@ -22,6 +23,7 @@ const known = <T,>(r: Resource<T>) => (r.status === 'ready' ? r.data : null)
 const why = (r: Resource<unknown>, failed: string) => (r.status === 'loading' ? 'Loading…' : failed)
 
 export default function IncidentsPage() {
+  const tab = usePageTab('/incidents')
   const decisions = useResource<{ decisions: Decision[] | null }>(`/api/v1/vigil/decisions?limit=${WINDOW}`, { intervalMs: 5000 })
   const agents = useResource<Agent[] | null>('/api/vigil/agents', { intervalMs: 8000 })
   const audit = useResource<Audit>('/api/v1/vigil/audit/verify', { intervalMs: 30000 })
@@ -56,7 +58,7 @@ export default function IncidentsPage() {
         </div>
       )}
 
-      <section className="mt-10" aria-labelledby="sc-title">
+      <section className="mt-8" aria-labelledby="sc-title" hidden={tab !== 'stopped'}>
         <div className="flex flex-wrap items-end justify-between gap-2 mb-3">
           <div>
             <h2 id="sc-title" className="app-h2">Stopped calls</h2>
@@ -93,7 +95,7 @@ export default function IncidentsPage() {
         </ResourceGate>
       </section>
 
-      <section className="mt-10" aria-labelledby="ab-title">
+      <section className="mt-8" aria-labelledby="ab-title" hidden={tab !== 'agents'}>
         <div className="flex flex-wrap items-end justify-between gap-2 mb-3">
           <div>
             <h2 id="ab-title" className="app-h2">Agents blocked or stopped</h2>
@@ -129,7 +131,7 @@ export default function IncidentsPage() {
         </ResourceGate>
       </section>
 
-      <section className="mt-10" aria-labelledby="det-title">
+      <section className="mt-8" aria-labelledby="det-title" hidden={tab !== 'detectors'}>
         <h2 id="det-title" className="app-h2">Detectors that can raise an incident</h2>
         <p className="app-sub mb-3">Behaviour rules registered on this server.</p>
         <ResourceGate r={rules} loading="Loading detectors…" compact

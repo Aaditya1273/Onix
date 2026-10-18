@@ -1,5 +1,7 @@
 'use client'
 
+import { usePageTab } from '@/lib/usePageTab'
+import { useIntro } from '@/lib/useIntro'
 import { CheckCircle2, Eye, ShieldCheck } from 'lucide-react'
 import { useResource } from '@/lib/useResource'
 import { Kpi, ResourceGate, StatePanel, VerdictBadge } from '@/components/app/ui'
@@ -17,11 +19,10 @@ interface Digest {
 }
 interface Reply { days: number; observe_mode: boolean; trust_threshold: number; digest: Digest }
 
-function Body({ r }: { r: Reply }) {
+function Body({ r, tab }: { r: Reply; tab: string }) {
   const d = r.digest
   const stopped = (d.by_verdict.BLOCK ?? 0) + (d.by_verdict.PAUSE ?? 0)
   const stages = Object.entries(d.by_stage).filter(([s]) => s !== 'default').sort((a, b) => b[1] - a[1])
-  const maxStage = Math.max(1, ...stages.map(s => s[1]))
   const win = `last ${r.days} days`
 
   return (
@@ -45,7 +46,7 @@ function Body({ r }: { r: Reply }) {
         </div>
       )}
 
-      <section aria-labelledby="earned-h" className="mt-6">
+      <section aria-labelledby="earned-h" className="mt-6" hidden={tab !== 'earned'}>
         <h2 id="earned-h" className="app-h2">Autonomy earned</h2>
         <p className="app-sub mt-1 mb-3">Call patterns with at least {r.trust_threshold} clean runs since their last incident, {win}.</p>
         {d.autonomy.length === 0 ? (
@@ -73,6 +74,7 @@ function Body({ r }: { r: Reply }) {
         )}
       </section>
 
+      <div hidden={tab !== 'stops'}>
       <div className="mt-6 grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Kpi value={stopped.toLocaleString()} label={r.observe_mode ? 'Would have stopped' : 'Stopped'} note={`blocked or paused · ${win}`} tone={stopped ? VERDICT.blocked.ink : undefined} />
         <Kpi value={d.decisions.toLocaleString()} label="Decisions" note={win} />
@@ -87,14 +89,7 @@ function Body({ r }: { r: Reply }) {
           {stages.length === 0 ? (
             <p className="app-sub">Nothing was stopped or rewritten in this window.</p>
           ) : (
-            <ul className="space-y-3">
-              {stages.map(([stage, n]) => (
-                <li key={stage} className="text-[13px]">
-                  <div className="flex justify-between gap-3"><span>{stageLabel(stage)}</span><span className="font-semibold tabular-nums">{n.toLocaleString()}</span></div>
-                  <div className="mt-1 h-2 rounded-full bg-[#f5f1ea]" aria-hidden="true"><div className="h-full rounded-full bg-[#5e544b]" style={{ width: `${(n / maxStage) * 100}%` }} /></div>
-                </li>
-              ))}
-            </ul>
+            <SignalTreemap rows={stages} />
           )}
         </section>
 
@@ -110,19 +105,63 @@ function Body({ r }: { r: Reply }) {
           {d.chain_broken > 0 && <p className="mt-2 text-[13px] text-[#7a1a12]">A broken link means a decision was dropped or rewritten after the fact.</p>}
         </section>
       </div>
+      </div>
     </>
   )
 }
 
 export default function AutonomyPage() {
+  const tab = usePageTab('/autonomy')
   const r = useResource<Reply>('/api/v1/vigil/digest?days=7', { intervalMs: 30000 })
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fadeIn">
       <h1>Earned autonomy</h1>
       <p>Which calls agents have run cleanly often enough to skip the approval prompt, from the graph&apos;s last 7 days.</p>
       <div className="mt-6">
-        <ResourceGate r={r} loading="Reading the last 7 days from the graph…">{d => <Body r={d} />}</ResourceGate>
+        <ResourceGate r={r} loading="Reading the last 7 days from the graph…">{d => <Body r={d} tab={tab} />}</ResourceGate>
       </div>
+    </div>
+  )
+}
+
+// Calls stopped per graph signal as a treemap: each tile's area is its share, the
+// biggest signal in the brand orange, the rest in warm neutrals stepping lighter.
+// Rectangles come from a squarish split (alternate the cut by the longer side).
+const TILE = ['#ff6b00', '#5e544b', '#8a5a12', '#2c76b0', '#7a6f64', '#a8380a', '#3d3530']
+function SignalTreemap({ rows }: { rows: [string, number][] }) {
+  const total = rows.reduce((a, [, n]) => a + n, 0)
+  const play = useIntro('treemap')
+  type R = { x: number; y: number; w: number; h: number; i: number }
+  const out: R[] = []
+  const split = (items: number[], x: number, y: number, w: number, h: number) => {
+    if (!items.length) return
+    if (items.length === 1) { out.push({ x, y, w, h, i: items[0] }); return }
+    const sum = items.reduce((a, i) => a + rows[i][1], 0)
+    // first item alone, or the first half by weight, on one side of the longer edge
+    let acc = 0, k = 0
+    while (k < items.length - 1 && acc + rows[items[k]][1] <= sum / 2) { acc += rows[items[k]][1]; k++ }
+    if (k === 0) { acc = rows[items[0]][1]; k = 1 }
+    const f = acc / sum
+    if (w >= h) { split(items.slice(0, k), x, y, w * f, h); split(items.slice(k), x + w * f, y, w * (1 - f), h) }
+    else { split(items.slice(0, k), x, y, w, h * f); split(items.slice(k), x, y + h * f, w, h * (1 - f)) }
+  }
+  split(rows.map((_, i) => i), 0, 0, 100, 100)
+  const gap = 0.6
+  return (
+    <div className={`relative w-full aspect-[16/10] min-h-[220px] ${play ? 'intro' : ''}`} role="img"
+      aria-label={`Calls stopped or rewritten by graph signal: ${rows.map(([s, n]) => `${stageLabel(s)} ${n}`).join(', ')}`}>
+      {out.map(r => {
+        const [stage, n] = rows[r.i], big = r.w * r.h > 900
+        const bg = TILE[r.i % TILE.length], dark = r.i === 0 ? '#14100d' : '#ffffff'
+        return (
+          <div key={stage} className="absolute rounded-xl p-3 overflow-hidden flex flex-col justify-between transition-transform duration-150 hover:scale-[1.015] a-zoom"
+            style={{ left: `${r.x + gap / 2}%`, top: `${r.y + gap / 2}%`, width: `${r.w - gap}%`, height: `${r.h - gap}%`, background: bg, color: dark, ['--d' as string]: `${0.1 + r.i * 0.12}s` }}
+            title={`${stageLabel(stage)}: ${n} (${Math.round((n / total) * 100)}%)`}>
+            <span className={`font-display font-black leading-none tracking-[-0.03em] ${big ? 'text-[34px]' : 'text-[22px]'}`}>{n}</span>
+            <span className={`${big ? 'text-[13.5px]' : 'text-[12px]'} font-semibold leading-snug`}>{stageLabel(stage)}<span className="opacity-75 font-normal"> · {Math.round((n / total) * 100)}%</span></span>
+          </div>
+        )
+      })}
     </div>
   )
 }

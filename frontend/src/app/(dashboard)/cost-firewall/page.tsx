@@ -100,7 +100,7 @@ function Spend({ s }: { s: Stats }) {
               ariaLabel={`Cumulative estimated spend from ${labels[0]} to ${labels[n - 1]}: ${money(data[0])} rising to ${money(data[n - 1])}. A table follows.`} />
             <details className="mt-3">
               <summary className="app-meta cursor-pointer">Show the samples as a table</summary>
-              <div className="app-table-wrap mt-2 max-h-72 overflow-y-auto">
+              <div className="app-table-wrap mt-2">
                 <table className="data-table">
                   <thead><tr><th scope="col">Server time</th><th scope="col" className="text-right">Cumulative spend</th><th scope="col" className="text-right">Change</th></tr></thead>
                   <tbody>

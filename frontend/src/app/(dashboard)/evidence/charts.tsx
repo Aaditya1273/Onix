@@ -85,10 +85,10 @@ export function ChartCard({ title, sub, legend, table, children, className = '' 
       {legend && !asTable && <div className="mt-3"><Legend items={legend} /></div>}
       <div className="mt-3">
         {asTable ? (
-          <div className="app-table-wrap max-h-[340px] overflow-y-auto">
+          <div className="app-table-wrap">
             <table className="data-table">
               <caption className="sr-only">{table.caption}</caption>
-              <thead><tr>{table.head.map(h => <th key={h} scope="col" className="sticky top-0">{h}</th>)}</tr></thead>
+              <thead><tr>{table.head.map(h => <th key={h} scope="col">{h}</th>)}</tr></thead>
               <tbody>
                 {table.rows.length === 0 && <tr><td colSpan={table.head.length} className="text-[#5e544b]">No rows.</td></tr>}
                 {table.rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j} className="tabular-nums">{c}</td>)}</tr>)}

@@ -40,7 +40,7 @@
 /* The graph frame's controls (VG.controls), as on GitHub's diagrams. */
 /* The frame scrolls sideways when a wide graph would otherwise shrink its
    labels; the toolbar sits under the drawing and stays in view while scrolling. */
-.vg-graph { position: relative; overflow-x: auto; overscroll-behavior-x: contain; }
+.vg-graph { position: relative; overflow: hidden; }
 .vg-graph .vg-ctl { z-index: 3; }
 .vg-graph .vg-bar { position: sticky; left: 0; width: 100%; box-sizing: border-box; display: flex; justify-content: flex-end; align-items: center; gap: 4px; padding: 4px 0 8px; }
 .vg-graph .vg-sep { width: 1px; height: 20px; background: var(--line); margin: 0 4px; }
@@ -62,3 +62,15 @@ html.vg-lock { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .vg-graph svg.dag.live .edge path.line, .pg-land, .pg-in, .pg-running::after { animation: none; }
 }
+
+/* Column headings of a min-cut network (VG.ROLE), and the "one call" view: what a
+   stateless filter has to go on, with the rest of the path faded but kept in place. */
+.vg-graph svg.dag .colhead { fill: #5e544b; font: 600 12.5px -apple-system, 'Segoe UI', Inter, sans-serif; text-anchor: middle; letter-spacing: .01em; }
+.vg-graph svg.dag .node, .vg-graph svg.dag .edge, .vg-graph svg.dag .colhead { transition: opacity .45s ease; }
+.vg-graph svg.dag.one-call .node:not([data-role=arg]):not([data-role=call]):not([data-role=sink]),
+.vg-graph svg.dag.one-call .edge:not([data-from-role=arg]):not([data-from-role=call]),
+.vg-graph svg.dag.one-call .colhead { opacity: .07; }
+@media (prefers-reduced-motion: reduce) { .vg-graph svg.dag .node, .vg-graph svg.dag .edge, .vg-graph svg.dag .colhead { transition: none; } }
+
+/* The graph sits on a canvas: cool slate with a faint dot grid, so it stands apart from the cream page. */
+.vg-graph.vg-canvas { background-color: #eef1f5; background-image: radial-gradient(#d2d9e2 1px, transparent 1.2px); background-size: 18px 18px; --halo: #eef1f5; border-color: #dde3ea; }

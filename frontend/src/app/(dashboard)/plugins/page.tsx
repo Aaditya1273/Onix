@@ -1,5 +1,6 @@
 'use client'
 
+import { usePageTab } from '@/lib/usePageTab'
 import { useId, useState } from 'react'
 import { ExternalLink } from 'lucide-react'
 import { useResource } from '@/lib/useResource'
@@ -51,6 +52,7 @@ function CodeLine({ code, label }: { code: string; label: string }) {
 }
 
 export default function PluginsPage() {
+  const tab = usePageTab('/plugins')
   const sessions = useResource<{ sessions: Session[] | null }>('/api/vigil/mcp/sessions', { intervalMs: 5000 })
   const [calls, setCalls] = useState<ToolCall[]>([])
   const [seq, setSeq] = useState(0)
@@ -71,7 +73,7 @@ export default function PluginsPage() {
       <h1>Plugins</h1>
       <p>Connect an MCP client to VIGIL. Every tool call it makes then goes through the firewall and is metered against its session budget.</p>
 
-      <section className="mt-8" aria-labelledby="conn-h">
+      <section className="mt-6" aria-labelledby="conn-h" hidden={tab !== 'connect'}>
         <h2 id="conn-h" className="app-h2">Connect a client</h2>
         <p className="app-sub mt-1 mb-4">The hosted VIGIL server speaks MCP at one endpoint, over SSE or plain HTTP requests.</p>
 
@@ -112,7 +114,7 @@ export default function PluginsPage() {
         </div>
       </section>
 
-      <section className="mt-10" aria-labelledby="sess-h">
+      <section className="mt-6" aria-labelledby="sess-h" hidden={tab !== 'sessions'}>
         <h2 id="sess-h" className="app-h2">MCP sessions</h2>
         <p className="app-sub mt-1 mb-4">Clients connected to this server, refreshed every 5 seconds. Session controls need an operator account.</p>
         <ResourceGate r={sessions} loading="Loading MCP sessions…" isEmpty={d => !d.sessions?.length}
@@ -131,7 +133,7 @@ export default function PluginsPage() {
         </ResourceGate>
       </section>
 
-      <section className="mt-10" aria-labelledby="calls-h">
+      <section className="mt-6" aria-labelledby="calls-h" hidden={tab !== 'calls'}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 id="calls-h" className="app-h2">Tool calls</h2>
           <span className="inline-flex items-center gap-2 app-meta" role="status">
@@ -145,7 +147,7 @@ export default function PluginsPage() {
             {live ? 'Calls appear here as a connected client makes them.' : 'The page is not connected to the event stream, so calls cannot appear until it reconnects.'}
           </StatePanel>
         ) : (
-          <div className="app-table-wrap max-h-96 overflow-y-auto">
+          <div className="app-table-wrap">
             <table className="data-table">
               <thead><tr><th scope="col">Time</th><th scope="col">Tool</th><th scope="col">Session</th><th scope="col" className="text-right">Cost</th><th scope="col" className="text-right">Session total</th></tr></thead>
               <tbody>

@@ -86,6 +86,7 @@ function History({ history }: { history: Snapshot[] }) {
   const x = (d: string) => L + (d1 === d0 ? (W - L - R) / 2 : ((Date.parse(d) - d0) / (d1 - d0)) * (W - L - R))
   const y = (s: number) => T + (1 - s / 100) * (H - T - B)
   const every = Math.max(1, Math.ceil(days.length / Math.max(2, Math.floor((W - L - R) / 56))))
+  let labelY: Record<string, number> = {}
   return (
     <div ref={ref} className="relative" onMouseLeave={() => setTip(null)}>
       {W > 0 && (
@@ -94,6 +95,14 @@ function History({ history }: { history: Snapshot[] }) {
             <g key={v}><line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke={GRID} /><text x={L - 6} y={y(v) + 4} textAnchor="end" fontSize={11} fill={AXIS}>{v}</text></g>
           ))}
           {days.map((d, i) => i % every === 0 && <text key={d} x={x(d)} y={H - 8} fontSize={11} fill={AXIS} textAnchor="middle">{d.slice(5)}</text>)}
+          {(() => {
+            // End labels: when two series end at the same score, stack the labels instead of printing them on top of each other.
+            const ends = scopes.map(sc => { const ps = history.filter(h => h.scope === sc).sort((a, b) => a.day.localeCompare(b.day)); const l = ps[ps.length - 1]; return l ? { sc, y: y(l.score) + 4 } : null }).filter(Boolean) as { sc: string; y: number }[]
+            ends.sort((a, b) => a.y - b.y)
+            for (let k = 1; k < ends.length; k++) if (ends[k].y - ends[k - 1].y < 15) ends[k].y = ends[k - 1].y + 15
+            labelY = Object.fromEntries(ends.map(e => [e.sc, e.y]))
+            return null
+          })()}
           {scopes.map((s, i) => {
             const pts = history.filter(h => h.scope === s).sort((a, b) => a.day.localeCompare(b.day))
             const tenant = s === '*', c = tenant ? INK : NEUTRAL, last = pts[pts.length - 1]
@@ -105,7 +114,7 @@ function History({ history }: { history: Snapshot[] }) {
                     <circle cx={x(p.day)} cy={y(p.score)} r={tenant ? 4 : 3.5} fill={c} stroke="#fff" strokeWidth={1.5} />
                   </g>
                 ))}
-                {!narrow && last && <text x={W - R + 10} y={y(last.score) + 4} fontSize={12} fill={c} fontWeight={tenant ? 600 : 400}>{(tenant ? 'tenant' : s).slice(0, 18)}</text>}
+                {!narrow && last && <text x={W - R + 10} y={labelY[s] ?? y(last.score) + 4} fontSize={12} fill={c} fontWeight={tenant ? 600 : 400}>{(tenant ? 'tenant' : s).slice(0, 18)}</text>}
               </g>
             )
           })}

@@ -4,56 +4,14 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { useSession, signOut } from 'next-auth/react'
-import {
-  LayoutDashboard, Activity, BarChart3, AlertTriangle, Shield, FileCheck, Zap, Cpu, Settings, HelpCircle,
-  Network, GitBranch, History, ShieldCheck, Scissors, Gauge, Sparkles, Clock, FlaskConical, LogOut,
-  ChevronDown, ArrowUpRight, Plug, Brain, Radio, Landmark, Sigma, Menu, X,
-} from 'lucide-react'
-
-type Item = { label: string; href: string; icon: React.ElementType; external?: boolean }
-
-// What VIGIL decides and why: always in view.
-const primary: Item[] = [
-  { label: 'Evidence',    href: '/evidence',           icon: Sigma },
-  { label: 'Decisions',   href: '/decisions',          icon: Scissors },
-  { label: 'Playground',  href: '/playground',         icon: FlaskConical },
-  { label: 'Autonomy',    href: '/autonomy',           icon: ShieldCheck },
-  { label: 'Risk',        href: '/risk',               icon: Gauge },
-  // Served by the Go server itself (internal/web), proxied through /web/*.
-  { label: 'Time Travel', href: '/web/timeline.html',  icon: Clock, external: true },
-  { label: 'Reveal',      href: '/web/reveal.html',    icon: Sparkles, external: true },
-]
-
-// Everything else, grouped and folded.
-const groups: { id: string; label: string; icon: React.ElementType; items: Item[] }[] = [
-  { id: 'graph', label: 'Graph memory', icon: Brain, items: [
-    { label: 'Ontology',        href: '/ontology',        icon: Network },
-    { label: 'Blast Radius',    href: '/blast-radius',    icon: GitBranch },
-    { label: 'Memory Timeline', href: '/memory-timeline', icon: History },
-  ] },
-  { id: 'runtime', label: 'Runtime', icon: Radio, items: [
-    { label: 'Mission Control', href: '/mission-control', icon: Activity },
-    { label: 'Cost Firewall',   href: '/cost-firewall',   icon: LayoutDashboard },
-    { label: 'Agent DNA',       href: '/agent-dna',       icon: BarChart3 },
-    { label: 'Incidents',       href: '/incidents',       icon: AlertTriangle },
-  ] },
-  { id: 'govern', label: 'Governance', icon: Landmark, items: [
-    { label: 'Policies',     href: '/policies',   icon: Shield },
-    { label: 'Governance',   href: '/governance', icon: FileCheck },
-    { label: 'Model Router', href: '/models',     icon: Cpu },
-    { label: 'Plugins',      href: '/plugins',    icon: Zap },
-  ] },
-]
-
-const footer: Item[] = [
-  { label: 'Connect an agent', href: '/connect',  icon: Plug },
-  { label: 'Settings',         href: '/settings', icon: Settings },
-  { label: 'Help',             href: 'https://github.com/Aaditya1273/Onix', icon: HelpCircle, external: true },
-]
+import { ChevronDown, ArrowUpRight, Menu, X, Search, LogOut } from 'lucide-react'
+import { allPages, footer, groups, primary, type NavItem } from './nav'
 
 const OPEN_KEY = 'vigil-sidebar-open'
 
-function NavItem({ item, active, nested }: { item: Item; active: boolean; nested?: boolean }) {
+// A dark panel inset in the app frame. Text on #1d1916: #f2ede7 (15:1), #b9ada0 (8:1);
+// the active item is the brand orange with dark text (6.7:1).
+function NavLink({ item, active, nested }: { item: NavItem; active: boolean; nested?: boolean }) {
   const { label, href, icon: Icon, external } = item
   return (
     <Link
@@ -61,15 +19,14 @@ function NavItem({ item, active, nested }: { item: Item; active: boolean; nested
       target={external ? '_blank' : undefined}
       rel={external ? 'noopener noreferrer' : undefined}
       aria-current={active ? 'page' : undefined}
-      className={`group relative flex items-center gap-3 rounded-lg text-[13.5px] font-medium transition-colors duration-150
-        ${nested ? 'pl-9 pr-3 py-1.5' : 'px-3 py-2'}
-        ${active ? 'bg-white text-gray-900 shadow-[0_1px_2px_rgba(20,16,13,0.06)] ring-1 ring-gray-200' : 'text-gray-600 hover:text-gray-900 hover:bg-black/[0.04]'}
-        focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#14100d]`}
+      className={`group flex items-center gap-3 rounded-xl text-[13.5px] font-medium transition-colors duration-150
+        ${nested ? 'pl-10 pr-3 py-1.5' : 'px-3 py-2'}
+        ${active ? 'bg-[#ff6b00] text-[#14100d]' : 'text-[#d6ccc0] hover:text-white hover:bg-white/[0.07]'}
+        focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ffb98a]`}
     >
-      {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-[#ff6b00]" aria-hidden="true" />}
-      <Icon className={`w-[17px] h-[17px] shrink-0 ${active ? 'text-[#ff6b00]' : 'text-gray-400 group-hover:text-gray-600'}`} strokeWidth={active ? 2.4 : 2} />
+      <Icon className={`w-[18px] h-[18px] shrink-0 ${active ? 'text-[#14100d]' : 'text-[#b9ada0] group-hover:text-white'}`} strokeWidth={active ? 2.3 : 1.9} aria-hidden="true" />
       <span className="truncate">{label}</span>
-      {external && <ArrowUpRight className="ml-auto w-3.5 h-3.5 text-gray-500" aria-label="opens in a new tab" />}
+      {external && <ArrowUpRight className={`ml-auto w-3.5 h-3.5 ${active ? '' : 'text-[#b9ada0]'}`} aria-label="opens in a new tab" />}
     </Link>
   )
 }
@@ -77,13 +34,14 @@ function NavItem({ item, active, nested }: { item: Item; active: boolean; nested
 export function Sidebar() {
   const pathname = usePathname()
   const { data: session } = useSession()
-  const isActive = (i: Item) => !i.external && pathname === i.href
+  const isActive = (i: NavItem) => !i.external && pathname === i.href
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [drawer, setDrawer] = useState(false)
+  const [q, setQ] = useState('')
 
   // The phone drawer closes on navigation and on Escape.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { setDrawer(false) }, [pathname])
+  useEffect(() => { setDrawer(false); setQ('') }, [pathname])
   const menuBtn = useRef<HTMLButtonElement>(null)
   const closeBtn = useRef<HTMLButtonElement>(null)
   const wasOpen = useRef(false)
@@ -98,8 +56,7 @@ export function Sidebar() {
     return () => document.removeEventListener('keydown', onKey)
   }, [drawer])
 
-  // A group opens on its own when you are on one of its pages; otherwise it
-  // stays as you left it.
+  // A group opens on its own when you are on one of its pages; otherwise it stays as you left it.
   useEffect(() => {
     let saved: Record<string, boolean> = {}
     try { saved = JSON.parse(localStorage.getItem(OPEN_KEY) || '{}') } catch { /* private mode */ }
@@ -114,103 +71,99 @@ export function Sidebar() {
     return n
   })
 
+  const query = q.trim().toLowerCase()
+  const found = query ? allPages.filter(p => p.label.toLowerCase().includes(query)) : []
+
   return (
     <>
-    {/* Below lg the sidebar becomes a drawer opened from this bar. */}
-    <div className="lg:hidden h-14 shrink-0 flex items-center gap-2 px-3 border-b border-gray-200/80" style={{ background: 'var(--paper)' }}>
-      <button ref={menuBtn} type="button" onClick={() => setDrawer(true)} aria-label="Open navigation" aria-expanded={drawer} aria-controls="app-nav"
-        className="grid place-items-center w-10 h-10 rounded-lg text-gray-700 hover:bg-black/[0.05]">
-        <Menu className="w-5 h-5" aria-hidden="true" />
-      </button>
-      <Link href="/" className="font-display text-[18px] font-black text-gray-900" style={{ letterSpacing: '-0.04em' }}>VIGIL</Link>
-    </div>
-    {drawer && <div className="lg:hidden fixed inset-0 z-40 bg-black/30" onClick={() => setDrawer(false)} aria-hidden="true" />}
-    <aside id="app-nav" className={`w-60 border-r border-gray-200/80 flex flex-col h-full shrink-0 select-none
-        max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-50 max-lg:w-[min(280px,85vw)] max-lg:transition-transform max-lg:duration-200
-        ${drawer ? 'max-lg:translate-x-0 max-lg:shadow-2xl' : 'max-lg:-translate-x-full max-lg:invisible'}`}
-      style={{ background: 'var(--paper)' }}
-      {...(drawer ? { role: 'dialog', 'aria-modal': true, 'aria-label': 'Navigation' } : {})}>
-      <div className="h-16 flex items-center gap-2.5 px-5 shrink-0">
-        <Link href="/" className="font-display text-[19px] font-black text-gray-900" style={{ letterSpacing: '-0.04em' }}>VIGIL</Link>
-        <button ref={closeBtn} type="button" onClick={() => setDrawer(false)} aria-label="Close navigation"
-          className="lg:hidden ml-auto grid place-items-center w-9 h-9 rounded-lg text-gray-700 hover:bg-black/[0.05]">
-          <X className="w-5 h-5" aria-hidden="true" />
+      {/* Below lg the sidebar becomes a drawer opened from this bar. */}
+      <div className="lg:hidden h-14 shrink-0 flex items-center gap-2 px-3 border-b border-[#e6ded2] bg-[#f7f3ec]">
+        <button ref={menuBtn} type="button" onClick={() => setDrawer(true)} aria-label="Open navigation" aria-expanded={drawer} aria-controls="app-nav"
+          className="grid place-items-center w-10 h-10 rounded-lg text-[#14100d] hover:bg-black/[0.05]">
+          <Menu className="w-5 h-5" aria-hidden="true" />
         </button>
+        <Link href="/" className="font-display text-[18px] font-black text-[#14100d]" style={{ letterSpacing: '-0.04em' }}>VIGIL</Link>
       </div>
+      {drawer && <div className="lg:hidden fixed inset-0 z-40 bg-black/40" onClick={() => setDrawer(false)} aria-hidden="true" />}
 
-      <nav className="flex-1 overflow-y-auto px-3 pb-3" aria-label="Dashboard">
-        <div className="space-y-0.5">
-          {primary.map(i => <NavItem key={i.href} item={i} active={isActive(i)} />)}
+      <aside id="app-nav"
+        className={`w-[248px] shrink-0 flex flex-col select-none bg-[#1d1916] text-[#f2ede7]
+          lg:m-2.5 lg:mr-0 lg:rounded-[20px] lg:h-[calc(100%-20px)]
+          max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-50 max-lg:w-[min(280px,85vw)] max-lg:transition-transform max-lg:duration-200
+          ${drawer ? 'max-lg:translate-x-0 max-lg:shadow-2xl' : 'max-lg:-translate-x-full max-lg:invisible'}`}
+        {...(drawer ? { role: 'dialog', 'aria-modal': true, 'aria-label': 'Navigation' } : {})}>
+        <div className="h-[60px] flex items-center gap-3 px-5 shrink-0">
+          <Link href="/" className="font-display text-[20px] font-black text-white" style={{ letterSpacing: '-0.03em' }}>VIGIL</Link>
+          <button ref={closeBtn} type="button" onClick={() => setDrawer(false)} aria-label="Close navigation"
+            className="lg:hidden ml-auto grid place-items-center w-9 h-9 rounded-lg text-[#d6ccc0] hover:bg-white/[0.08]">
+            <X className="w-5 h-5" aria-hidden="true" />
+          </button>
         </div>
 
-        <div className="mt-5 pt-4 border-t border-gray-200/80 space-y-1">
-          {groups.map(g => {
-            const isOpen = !!open[g.id]
-            const hasActive = g.items.some(isActive)
-            const Icon = g.icon
-            return (
-              <div key={g.id}>
-                <button
-                  type="button"
-                  onClick={() => toggle(g.id)}
-                  aria-expanded={isOpen}
-                  aria-controls={`nav-${g.id}`}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[13.5px] font-medium transition-colors
-                    ${hasActive ? 'text-gray-900' : 'text-gray-600 hover:text-gray-900 hover:bg-black/[0.04]'}
-                    focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#14100d]`}
-                >
-                  <Icon className={`w-[17px] h-[17px] shrink-0 ${hasActive ? 'text-[#ff6b00]' : 'text-gray-400'}`} strokeWidth={2} />
-                  <span>{g.label}</span>
-                  {!isOpen && hasActive && <span className="w-1.5 h-1.5 rounded-full bg-[#ff6b00]" aria-hidden="true" />}
-                  <ChevronDown className={`ml-auto w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
-                </button>
-                <div
-                  id={`nav-${g.id}`}
-                  inert={!isOpen}
-                  className={`grid transition-[grid-template-rows] duration-200 ease-out ${isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
-                >
-                  <div className="overflow-hidden">
-                    <div className="space-y-0.5 py-0.5">
-                      {g.items.map(i => <NavItem key={i.href} item={i} active={isActive(i)} nested />)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
+        <div className="px-4 pb-3 shrink-0">
+          <label className="relative block">
+            <span className="sr-only">Find a page</span>
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#b9ada0]" aria-hidden="true" />
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Find a page" type="search"
+              className="w-full h-10 rounded-xl bg-white/[0.06] border border-white/[0.14] pl-9 pr-3 text-[13.5px] text-white placeholder:text-[#b9ada0]
+                focus:outline-none focus:border-[#ff6b00] focus:bg-white/[0.09]" />
+          </label>
         </div>
-      </nav>
 
-      <div className="px-3 py-3 border-t border-gray-200/80 space-y-0.5 shrink-0">
-        {footer.map(i => <NavItem key={i.href} item={i} active={isActive(i)} />)}
-      </div>
-
-      {session?.user && (
-        <div className="px-4 py-3 border-t border-gray-200/80 shrink-0">
-          <div className="flex items-center gap-3">
-            {session.user.image ? (
-              <img src={session.user.image} alt="" className="w-8 h-8 rounded-full shrink-0 ring-1 ring-gray-200" />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center shrink-0 text-sm font-semibold">
-                {session.user.name?.charAt(0) || 'U'}
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="text-[13px] font-semibold text-gray-900 truncate">{session.user.name}</p>
-              <p className="text-[12px] text-gray-600 truncate">{session.user.email}</p>
+        <nav className="flex-1 overflow-y-auto px-3 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Application">
+          {query ? (
+            <div className="space-y-1">
+              {found.map(i => <NavLink key={i.href} item={i} active={isActive(i)} />)}
+              {found.length === 0 && <p className="px-3 py-2 text-[13px] text-[#b9ada0]">No page matches “{q}”.</p>}
             </div>
-            <button
-              onClick={() => signOut({ callbackUrl: '/login' })}
-              className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-black/[0.05] rounded-md transition-colors shrink-0"
-              title="Sign out"
-              aria-label="Sign out"
-            >
-              <LogOut className="w-4 h-4" />
+          ) : (
+            <>
+              <div className="space-y-0.5">
+                {primary.map(i => <NavLink key={i.href} item={i} active={isActive(i)} />)}
+              </div>
+              <div className="mt-3 pt-3 border-t border-white/[0.09] space-y-0.5">
+                {groups.map(g => {
+                  const isOpen = !!open[g.id]
+                  const hasActive = g.items.some(isActive)
+                  const Icon = g.icon
+                  return (
+                    <div key={g.id}>
+                      <button type="button" onClick={() => toggle(g.id)} aria-expanded={isOpen} aria-controls={`nav-${g.id}`}
+                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors
+                          ${hasActive ? 'text-white' : 'text-[#d6ccc0] hover:text-white hover:bg-white/[0.07]'}
+                          focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ffb98a]`}>
+                        <Icon className={`w-[18px] h-[18px] shrink-0 ${hasActive ? 'text-[#ff6b00]' : 'text-[#b9ada0]'}`} strokeWidth={1.9} aria-hidden="true" />
+                        <span>{g.label}</span>
+                        {!isOpen && hasActive && <span className="w-1.5 h-1.5 rounded-full bg-[#ff6b00]" aria-hidden="true" />}
+                        <ChevronDown className={`ml-auto w-4 h-4 text-[#b9ada0] transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                      </button>
+                      <div id={`nav-${g.id}`} inert={!isOpen}
+                        className={`grid transition-[grid-template-rows] duration-200 ease-out ${isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+                        <div className="overflow-hidden">
+                          <div className="space-y-0.5 py-0.5">
+                            {g.items.map(i => <NavLink key={i.href} item={i} active={isActive(i)} nested />)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </nav>
+
+        <div className="px-3 py-2.5 border-t border-white/[0.09] space-y-0.5 shrink-0">
+          {footer.map(i => <NavLink key={i.href} item={i} active={isActive(i)} />)}
+          {session?.user && (
+            <button type="button" onClick={() => signOut({ callbackUrl: '/login' })}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium text-[#d6ccc0] hover:text-white hover:bg-white/[0.07]
+                focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ffb98a]">
+              <LogOut className="w-[18px] h-[18px] text-[#b9ada0]" strokeWidth={1.9} aria-hidden="true" />Log out
             </button>
-          </div>
+          )}
         </div>
-      )}
-    </aside>
+      </aside>
     </>
   )
 }

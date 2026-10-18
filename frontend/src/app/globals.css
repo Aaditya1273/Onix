@@ -81,6 +81,17 @@ body {
   font-family: 'Epilogue', -apple-system, sans-serif;
   font-weight: 800;
   letter-spacing: -0.02em;
+  /* One title scale on every page: unlayered, so it outranks a page's size utility. */
+  font-size: 28px;
+  line-height: 1.15;
+}
+/* The line under each page title, the same everywhere. */
+.dashboard-shell h1 + p {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--gray-500);
+  margin-top: 6px;
+  max-width: 72ch;
 }
 .subtitle { font-size: 1.125rem; line-height: 1.6; color: var(--gray-400); }
 .body-sm { font-size: 0.875rem; line-height: 1.5; color: var(--gray-400); }

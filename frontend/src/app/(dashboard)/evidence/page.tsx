@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Sigma, Table2 } from 'lucide-react'
+import { Table2 } from 'lucide-react'
 
 // Every number on this page is read from the control plane's own decision log
 // (GET /api/v1/vigil/decisions and /digest): nothing is typed in.
@@ -307,9 +307,8 @@ export default function EvidencePage() {
   const ready = ds.length > 0 && dg
 
   return (
-    <div className="p-8 max-w-[1200px] mx-auto">
-      <div className="flex items-center gap-2 text-orange-600 mb-2"><Sigma className="w-5 h-5" /><span className="text-sm font-semibold">Evidence</span></div>
-      <h1 className="text-4xl font-bold text-gray-900" style={{ letterSpacing: '-0.03em' }}>What the graph decided, in numbers</h1>
+    <div className="p-8 max-w-6xl mx-auto animate-fadeIn">
+      <h1 className="text-gray-900">What the graph decided, in numbers</h1>
       <p className="text-gray-500 mt-2 max-w-3xl">Every chart is drawn from VIGIL&apos;s decision log in FalkorDB on this deployment, read when you opened the page. The current data comes from the demo sessions the server plays on start.</p>
 
       {err && <div className="mt-6 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">{err}</div>}

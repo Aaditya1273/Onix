@@ -2,7 +2,7 @@
 
 import Script from 'next/script'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { FlaskConical, Link2 } from 'lucide-react'
+import { Link2 } from 'lucide-react'
 import './graph.css'
 
 // The public playground (VIGIL_PLAYGROUND=1): the real firewall on its own
@@ -191,14 +191,13 @@ export default function PlaygroundPage() {
   ]
 
   return (
-    <div className="p-8 max-w-[1200px] mx-auto">
+    <div className="p-8 max-w-6xl mx-auto animate-fadeIn">
       <Script src={PG + '/web/vigil.js'} strategy="afterInteractive" onReady={() => setVg(true)} />
 
       {/* Header and live score */}
       <div className="flex flex-wrap items-end justify-between gap-6 mb-8">
         <div>
-          <div className="flex items-center gap-2 text-orange-600 mb-2"><FlaskConical className="w-5 h-5" /><span className="text-sm font-semibold">Playground</span></div>
-          <h1 className="text-4xl font-bold text-gray-900" style={{ letterSpacing: '-0.03em' }}>Try to get an AI agent past VIGIL</h1>
+          <h1 className="text-gray-900">Try to get an AI agent past VIGIL</h1>
           <p className="text-gray-500 mt-2 max-w-2xl">Every attack is decided live by the real firewall against FalkorDB, on the playground&apos;s own graph. Calls it allows run in a fake sandbox that does no I/O.</p>
         </div>
         <div className="grid grid-cols-3 gap-3">

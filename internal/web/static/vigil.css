@@ -60,7 +60,7 @@ svg.dag { cursor: grab; } svg.dag.dragging { cursor: grabbing; }
 .vg-box svg.dag { margin: 4px 0; }
 /* The frame scrolls sideways when a wide graph would otherwise shrink its
    labels; the toolbar sits under the drawing and stays in view while scrolling. */
-.vg-frame { position: relative; overflow-x: auto; overscroll-behavior-x: contain; }
+.vg-frame { position: relative; overflow: hidden; }
 .vg-ctl { z-index: 3; }
 .vg-bar { position: sticky; left: 0; width: 100%; box-sizing: border-box; display: flex; justify-content: flex-end; align-items: center; gap: 4px; padding: 4px 0 8px; }
 .vg-sep { width: 1px; height: 20px; background: var(--line); margin: 0 4px; }
@@ -172,3 +172,83 @@ footer p { margin: 0; flex: 1; min-width: 260px; }
   header.top .btn { font-size: 14px; white-space: nowrap; }
 }
 @media (max-width: 700px) { .big { font-size: 34px; } .ends { grid-template-columns: 1fr; } .screen { padding: 48px 16px 150px; } .bar { padding: 10px 16px; gap: 8px; } .bar .grow { flex-basis: 100%; font-size: 12.5px; } }
+
+/* Column headings of a min-cut network (VG.ROLE), and the "one call" view: what a
+   stateless filter has to go on, with the rest of the path faded but kept in place. */
+svg.dag .colhead { fill: #5e544b; font: 600 12.5px -apple-system, 'Segoe UI', Inter, sans-serif; text-anchor: middle; letter-spacing: .01em; }
+svg.dag .node, svg.dag .edge, svg.dag .colhead { transition: opacity .45s ease; }
+svg.dag.one-call .node:not([data-role=arg]):not([data-role=call]):not([data-role=sink]),
+svg.dag.one-call .edge:not([data-from-role=arg]):not([data-from-role=call]),
+svg.dag.one-call .colhead { opacity: .07; }
+@media (prefers-reduced-motion: reduce) { svg.dag .node, svg.dag .edge, svg.dag .colhead { transition: none; } }
+
+/* The graph sits on a canvas: cool slate with a faint dot grid, so it stands apart from the cream page. */
+.vg-box { background-color: #eef1f5; background-image: radial-gradient(#d2d9e2 1px, transparent 1.2px); background-size: 18px 18px; --halo: #eef1f5; border-color: #dde3ea; }
+
+/* ---- Inside the dashboard (html.embed, set by ?embed=1) ------------------------------
+   The same look as the app around it: Inter for everything, the cream page, white
+   rounded cards, the same spacing; the page's own header gives way to the app's. */
+@font-face { font-family: "Inter"; src: url("fonts/Inter.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+html.embed { --bg: #f7f3ec; --panel: #fff; --line: #ebe4d9; --gutter: clamp(16px, 2.6vw, 44px); }
+html.embed, html.embed body, html.embed button, html.embed select, html.embed input { font-family: "Inter", -apple-system, "Segoe UI", sans-serif; }
+html.embed :is(h1, h2, h3, .big, .when, .step-n, .mark, .answer h3) { font-family: "Inter", -apple-system, sans-serif; }
+html.embed header.top .mark, html.embed header.top nav a.quiet { display: none; }
+html.embed header.top { border: 0; }
+html.embed header.top .wrap { height: auto; padding-top: 20px; justify-content: flex-end; }
+html.embed .wrap { max-width: 1600px; padding: 0 var(--gutter); }
+html.embed h1 { font-size: 28px; line-height: 1.15; font-weight: 700; letter-spacing: -0.025em; max-width: none; margin-bottom: 10px; }
+html.embed .lede { font-size: 15px; max-width: 130ch; }
+html.embed h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+html.embed .hero { padding: 28px 0 8px; gap: 32px; }
+html.embed section.block { border: 1px solid var(--line); background: #fff; border-radius: 20px; padding: 28px; margin-top: 24px; }
+html.embed .vg-box { border-radius: 14px; }
+html.embed .focus, html.embed .answer { border-radius: 16px; }
+html.embed .step-n { background: #ff6b00; color: #14100d; }
+html.embed button, html.embed .btn { border-radius: 10px; border-color: #8f8478; }
+html.embed .btn.ink, html.embed button.primary { background: #ff6b00; border-color: #ff6b00; color: #14100d; }
+html.embed main.wrap { padding-bottom: 64px; }
+/* reveal: full-height story screens become cards in the page */
+html.embed .screen { min-height: 0; padding: 36px var(--gutter); margin: 20px var(--gutter) 0; background: #fff; border: 1px solid var(--line); border-radius: 20px; }
+html.embed .screen:first-child { margin-top: 28px; }
+html.embed .screen:last-child { margin-bottom: 48px; }
+html.embed .big { font-size: clamp(26px, 2.6vw, 38px); line-height: 1.15; font-weight: 700; letter-spacing: -0.025em; }
+html.embed .kicker { text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 600; color: #6b6158; }
+
+/* Time travel inside the dashboard: steps 1 and 2 side by side, a calmer clock, a
+   themed slider and dropdown, and no gap above the title. */
+html.embed header.top .wrap { padding-top: 16px; }
+html.embed .hero { padding: 4px 0 4px; align-items: center; grid-template-columns: minmax(0, 1fr) 400px; }
+@media (min-width: 1100px) {
+  html.embed main.wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); column-gap: 24px; align-items: stretch; }
+  html.embed main.wrap > section.hero, html.embed main.wrap > section.block:nth-of-type(n+4) { grid-column: 1 / -1; }
+}
+html.embed select { max-width: none; border: 1px solid #8f8478; border-radius: 12px; padding: 12px 44px 12px 14px; font-size: 14px; }
+html.embed select:focus-visible { outline: none; border-color: #ff6b00; box-shadow: 0 0 0 3px rgba(255, 107, 0, .22); }
+/* Chromium's customizable select: the open list in the app's style (other browsers keep the native list). */
+@supports (appearance: base-select) {
+  html.embed select, html.embed select::picker(select) { appearance: base-select; }
+  html.embed select::picker-icon { display: none; }
+  html.embed select::picker(select) { border: 1px solid #ebe4d9; border-radius: 14px; padding: 6px; background: #fff; box-shadow: 0 18px 40px -12px rgba(20, 16, 13, .25); max-height: 360px; }
+  html.embed option { padding: 9px 12px; border-radius: 9px; font-size: 13.5px; color: #14100d; }
+  html.embed option:hover, html.embed option:focus-visible { background: #faf3eb; outline: none; }
+  html.embed option:checked { background: #fdeee4; color: #a8380a; font-weight: 600; }
+  html.embed option::checkmark { display: none; }
+}
+html.embed .when { font-size: 24px; font-weight: 700; letter-spacing: -0.015em; }
+html.embed .clock { margin-bottom: 8px; }
+html.embed .pos { font-size: 13.5px; }
+/* a slim track filled up to the thumb (--p is kept in step by the page's embed script) */
+html.embed input[type=range] { appearance: none; height: 22px; background: transparent; cursor: pointer; }
+html.embed input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 6px; background: linear-gradient(90deg, #ff6b00 var(--p, 0%), #e6ded2 var(--p, 0%)); }
+html.embed input[type=range]::-moz-range-track { height: 6px; border-radius: 6px; background: #e6ded2; }
+html.embed input[type=range]::-moz-range-progress { height: 6px; border-radius: 6px; background: #ff6b00; }
+html.embed input[type=range]::-webkit-slider-thumb { appearance: none; width: 18px; height: 18px; margin-top: -6px; border-radius: 50%; background: #fff; border: 3px solid #ff6b00; box-shadow: 0 1px 4px rgba(20, 16, 13, .25); }
+html.embed input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 3px solid #ff6b00; }
+html.embed input[type=range]:focus-visible { outline: none; }
+html.embed input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgba(255, 107, 0, .25); }
+html.embed .hint { max-width: none; }
+
+/* Reveal inside the dashboard: the top bar's sub-tab picks which screens show. */
+html.embed[data-view="summary"] .screen[data-view]:not([data-view="summary"]),
+html.embed[data-view="autonomy"] .screen[data-view]:not([data-view="autonomy"]),
+html.embed[data-view="all"] .screen[data-view]:not([data-view="all"]) { display: none; }

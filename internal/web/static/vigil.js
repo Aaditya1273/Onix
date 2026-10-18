@@ -10,6 +10,9 @@
     return e;
   };
 
+  // Column headings for a min-cut network, in the order the data flows.
+  const ROLE = { source: 'Untrusted origin', read: 'Earlier reads', value: 'Values they carried', arg: 'Arguments of this call', call: 'This call', sink: 'Leaves the machine' };
+
   // Longest-path layering: a node sits one column right of its furthest parent.
   function layout(g) {
     const ids = g.nodes.map(n => n.id);
@@ -47,24 +50,35 @@
     const { layer, cols } = layout(g);
     const ncol = Object.keys(cols).length;
     const maxRows = Math.max(...Object.values(cols).map(c => c.length));
-    const W = Math.max(640, ncol * 240), H = Math.max(150, maxRows * 80 + 30);
+    // Columns mean something: when the nodes say what they are (a min-cut network does),
+    // each column gets a heading and the reader sees the order of events, not a tangle.
+    const head = g.nodes.some(n => n.role) ? 40 : 0;
+    const W = Math.max(640, ncol * 240), H = Math.max(150, maxRows * 80 + 30) + head;
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.style.maxWidth = W + 'px'; // never drawn larger than life: a small graph stays small
-    // ...and never so small that labels become unreadable: below this the frame
-    // scrolls sideways instead of shrinking the text (smallest label >= 10px).
-    svg.style.minWidth = Math.round(W * 0.92) + 'px';
+    // It always fits its frame (no sideways scrollbar); zoom and full screen give detail.
     const pos = {};
     Object.entries(cols).forEach(([c, list]) => {
       list.forEach((id, i) => {
-        pos[id] = { x: 100 + (+c) * ((W - 200) / Math.max(1, ncol - 1)), y: (H / (list.length + 1)) * (i + 1) };
+        pos[id] = { x: 100 + (+c) * ((W - 200) / Math.max(1, ncol - 1)), y: head + ((H - head) / (list.length + 1)) * (i + 1) };
       });
     });
     if (ncol === 1) Object.values(pos).forEach(p => (p.x = W / 2));
+    if (head) {
+      const byId = Object.fromEntries(g.nodes.map(n => [n.id, n]));
+      Object.entries(cols).forEach(([c, list]) => {
+        const roles = [...new Set(list.map(id => byId[id].role).filter(Boolean))];
+        if (roles.length !== 1 || !ROLE[roles[0]]) return;
+        const t = el('text', { x: pos[list[0]].x, y: 22, class: 'colhead' }, svg);
+        t.textContent = ROLE[roles[0]];
+      });
+    }
     const defs = el('defs', {}, svg);
     ['grey', 'cut', 'verdict'].forEach(k => {
       const m = el('marker', { id: 'arr-' + k, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, defs);
       el('path', { d: 'M0,0 L10,5 L0,10 z', class: 'arrow-' + k }, m);
     });
+    let edgeRoles = null;
     const order = g.edges.slice().sort((a, b) => layer[a.from] - layer[b.from]);
     const labelled = new Set(); // edges fanning into one node with one label are labelled once
     const room = Math.max(8, Math.floor(((W - 200) / Math.max(1, ncol - 1) - 168 + 60) / 6.6)); // characters that fit between two columns
@@ -72,7 +86,8 @@
       const a = pos[e.from], b = pos[e.to];
       if (!a || !b) return null;
       const k = e.cut ? 'cut' : e.verdict ? 'verdict' : 'grey';
-      const grp = el('g', { class: 'edge hidden ' + k }, svg);
+      const byIdE = edgeRoles || (edgeRoles = Object.fromEntries(g.nodes.map(n => [n.id, n.role || ''])));
+      const grp = el('g', { class: 'edge hidden ' + k, 'data-from-role': byIdE[e.from], 'data-to-role': byIdE[e.to] }, svg);
       const mx = (a.x + b.x) / 2;
       const d = `M${a.x + 84},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x - 86},${b.y}`;
       const p = el('path', { d, class: 'line', 'marker-end': `url(#arr-${k})` }, grp);
@@ -87,7 +102,7 @@
     const nodeEls = {};
     g.nodes.forEach(n => {
       const p = pos[n.id];
-      const grp = el('g', { class: 'node hidden ' + (n.kind || ''), transform: `translate(${p.x},${p.y})`, tabindex: 0, role: 'img', 'aria-label': describeNode(g, n) }, svg);
+      const grp = el('g', { class: 'node hidden ' + (n.kind || ''), transform: `translate(${p.x},${p.y})`, tabindex: 0, role: 'img', 'aria-label': describeNode(g, n), 'data-id': n.id, 'data-role': n.role || '' }, svg);
       el('rect', { x: -84, y: -24, width: 168, height: 48, rx: 8 }, grp);
       const t = el('text', { y: n.sub ? -4 : 5, class: 'nlabel' }, grp);
       t.textContent = clip(n.label, 21);
@@ -286,6 +301,10 @@
       return { from: e.from, to: e.to, label: e.kind + ' ' + cap, cut: e.cut };
     });
     if (nodes.sink) nodes.sink.kind = 'verdict';
+    // What each node is, from the kind of edge that reaches it (cut_build.cypher's FLOW kinds).
+    const INTO = { source: 'read', read: 'value', taints: 'arg', arg: 'call', terminal: 'sink' };
+    Object.values(nodes).forEach(n => (n.role = 'source'));
+    edges.forEach(e => { if (INTO[e.kind]) nodes[e.to].role = INTO[e.kind]; });
     return { nodes: Object.values(nodes), edges: out };
   }
 
@@ -398,5 +417,5 @@
   }
   const kindOf = err => err && (err.kind === 'network' || err.kind === 'sleeping') ? 'sleeping' : 'error';
 
-  window.VG = { dag, zoomable, controls, focus, fromNetwork, fromPaths, num, when, day, esc, getJSON, copy, clip, alt, verdict, label, badge, explain, state, kindOf };
+  window.VG = { ROLE, dag, zoomable, controls, focus, fromNetwork, fromPaths, num, when, day, esc, getJSON, copy, clip, alt, verdict, label, badge, explain, state, kindOf };
 })();

@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VIGIL Reveal</title>
 <link rel="stylesheet" href="vigil.css">
+<script>/* inside the dashboard (?embed=1): its look, without this page's own header */ if (/[?&]embed=1/.test(location.search)) {
+  document.documentElement.classList.add('embed'); document.documentElement.dataset.embed = '1';
+  // Links to the sibling pages open the dashboard's own page for them, not a bare page inside the frame.
+  const ROUTE = { 'timeline.html': '/time-travel', 'reveal.html': '/reveal', 'playground.html': '/playground' };
+  document.addEventListener('click', e => {
+    const a = e.target.closest && e.target.closest('a[href]'); if (!a) return;
+    const u = new URL(a.getAttribute('href'), location.href), page = u.pathname.split('/').pop();
+    if (u.origin === location.origin && ROUTE[page]) { e.preventDefault(); window.top.location.href = ROUTE[page] + u.search.replace(/[?&]embed=1/, '').replace(/^&/, '?') + u.hash; }
+  });
+}</script>
 </head>
 <body>
 <main id="app"><section class="screen"><h1 class="sr-only">VIGIL reveal</h1><div id="state"></div></section></main>
@@ -21,7 +31,13 @@ const app = document.getElementById('app');
 const { num, day, when, esc } = VG;
 document.getElementById('run').onclick = e => VG.copy(RUN, e.target);
 
-function screen(html, cls) { const s = document.createElement('section'); s.className = 'screen ' + (cls || ''); s.innerHTML = html; app.appendChild(s); return s; }
+function screen(html, cls) {
+  const s = document.createElement('section'); s.className = 'screen ' + (cls || ''); s.innerHTML = html;
+  // which dashboard sub-tab this screen belongs to (used only inside the dashboard)
+  const k = (html.match(/class="kicker">([^<]*)/) || [])[1] || '';
+  s.dataset.view = /Autonomy|Repeated/.test(k) ? 'autonomy' : /Everything/.test(k) ? 'all' : 'summary';
+  app.appendChild(s); return s;
+}
 
 const th = cols => `<thead><tr>${cols.map(c => `<th scope="col">${c}</th>`).join('')}</tr></thead>`;
 

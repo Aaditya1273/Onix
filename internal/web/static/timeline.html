@@ -6,6 +6,19 @@
 <title>VIGIL Time Travel</title>
 <meta name="description" content="Scrub through every decision VIGIL made and watch the graph as it stood at each moment.">
 <link rel="stylesheet" href="vigil.css">
+<script>/* inside the dashboard (?embed=1): its look, without this page's own header */ if (/[?&]embed=1/.test(location.search)) {
+  document.documentElement.classList.add('embed'); document.documentElement.dataset.embed = '1';
+  // Keep the slider's filled share in --p (the page also moves it from script, without input events).
+  const fill = () => document.querySelectorAll('input[type=range]').forEach(r => { const span = (+r.max - +r.min) || 1; r.style.setProperty('--p', ((+r.value - +r.min) / span * 100) + '%') });
+  document.addEventListener('input', fill); setInterval(fill, 150);
+  // Links to the sibling pages open the dashboard's own page for them, not a bare page inside the frame.
+  const ROUTE = { 'timeline.html': '/time-travel', 'reveal.html': '/reveal', 'playground.html': '/playground' };
+  document.addEventListener('click', e => {
+    const a = e.target.closest && e.target.closest('a[href]'); if (!a) return;
+    const u = new URL(a.getAttribute('href'), location.href), page = u.pathname.split('/').pop();
+    if (u.origin === location.origin && ROUTE[page]) { e.preventDefault(); window.top.location.href = ROUTE[page] + u.search.replace(/[?&]embed=1/, '').replace(/^&/, '?') + u.hash; }
+  });
+}</script>
 <style>
   /* Read top to bottom: which decision, where in time, what the graph knew then, and why it mattered. */
   .hero { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 48px; align-items: end; padding: 64px 0 44px; }

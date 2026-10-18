@@ -50,7 +50,7 @@ async function main() {
       <p class="big"><span class="n verdict">${num(s.blocked)}</span> would have been blocked. Here's the one that mattered.</p>
       <p class="sub">${num(s.paused)} more would have asked you first (Claude Code's normal prompt) because content from outside reached a shell${s.redacted ? `, and ${num(s.redacted)} would have run with an argument redacted` : ''}. These are VIGIL's verdicts on your history, not proven incidents: judge each one.</p>
       <p class="sub">${esc(p.decision.verdict)} · ${esc(p.decision.stage)} · ${when(p.decision.ts)}</p>
-      <svg class="dag" id="path"></svg>
+      <div class="vg-box"><svg class="dag" id="path"></svg></div>
       <div class="why">${esc(p.why.sentence || p.decision.reason)}</div>
       <div class="ends">
         ${p.cause ? `<div class="end"><b>Earlier · session ${esc(short(p.cause.session))}</b><div class="mono">${esc(p.cause.label || p.cause.tool)}</div><div class="sub">${when(p.cause.ts)}</div></div>` : ''}
@@ -59,7 +59,7 @@ async function main() {
     const g = p.network && p.network.length ? VG.fromNetwork(p.network) : VG.fromPaths(p.decision.paths);
     if (!g.nodes.length) g.nodes.push({ id: 'd', label: p.decision.tool, kind: 'verdict' });
     const svg = sc.querySelector('#path');
-    new IntersectionObserver((es, o) => { if (es[0].isIntersecting) { o.disconnect(); VG.dag(svg, g, { animate: true }); } }, { threshold: .3 }).observe(svg);
+    new IntersectionObserver((es, o) => { if (es[0].isIntersecting) { o.disconnect(); VG.dag(svg, g, { animate: true }); VG.controls(svg); } }, { threshold: .3 }).observe(svg);
   } else {
     screen(`<div class="kicker">What would have been stopped</div>
       <p class="big">Nothing in this history would have been blocked.</p>

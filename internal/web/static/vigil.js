@@ -176,7 +176,8 @@
     const vb = svg.viewBox.baseVal, base = { x: 0, y: 0, w: vb.width, h: vb.height };
     let v = { ...base };
     const set = () => { svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`); svg.classList.toggle('zoomed', v.w < base.w - 0.5); };
-    const keep = () => { v.x = Math.min(Math.max(v.x, 0), base.w - v.w); v.y = Math.min(Math.max(v.y, 0), base.h - v.h); };
+    // Panning may run half a frame past the drawing, as in a map; never further.
+    const keep = () => { v.x = Math.min(Math.max(v.x, -base.w / 2), base.w - v.w / 2); v.y = Math.min(Math.max(v.y, -base.h / 2), base.h - v.h / 2); };
     const zoom = (f, cx, cy) => {
       cx = cx ?? v.x + v.w / 2; cy = cy ?? v.y + v.h / 2;
       const w = Math.min(base.w, Math.max(base.w / 6, v.w * f)), h = w * base.h / base.w;
@@ -186,11 +187,61 @@
     svg.addEventListener('wheel', ev => { if (!ev.ctrlKey && !ev.metaKey) return; ev.preventDefault(); const p = at(ev); zoom(ev.deltaY > 0 ? 1.15 : 1 / 1.15, p.x, p.y); }, { passive: false });
     svg.addEventListener('dblclick', ev => { const p = at(ev); zoom(1 / 1.6, p.x, p.y); });
     let drag = null;
-    svg.addEventListener('pointerdown', ev => { if (v.w >= base.w - 0.5) return; drag = { x: ev.clientX, y: ev.clientY, v: { ...v } }; svg.setPointerCapture(ev.pointerId); svg.classList.add('dragging'); });
+    svg.addEventListener('pointerdown', ev => { if (ev.button !== 0 || ev.target.closest('.node')) return; drag = { x: ev.clientX, y: ev.clientY, v: { ...v } }; svg.setPointerCapture(ev.pointerId); svg.classList.add('dragging'); });
     svg.addEventListener('pointermove', ev => { if (!drag) return; const s = v.w / svg.clientWidth; v.x = drag.v.x - (ev.clientX - drag.x) * s; v.y = drag.v.y - (ev.clientY - drag.y) * s; keep(); set(); });
     const up = () => { drag = null; svg.classList.remove('dragging'); };
     svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
-    return { in: () => zoom(1 / 1.35), out: () => zoom(1.35), fit: () => { v = { ...base }; set(); } };
+    return {
+      in: () => zoom(1 / 1.35), out: () => zoom(1.35), fit: () => { v = { ...base }; set(); },
+      pan: (fx, fy) => { v.x += fx * v.w; v.y += fy * v.h; keep(); set(); },
+    };
+  }
+
+  const ICON = {
+    expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
+    close: '<path d="M18 6 6 18M6 6l12 12"/>',
+    up: '<path d="m18 15-6-6-6 6"/>', down: '<path d="m6 9 6 6 6-6"/>',
+    left: '<path d="m15 18-6-6 6-6"/>', right: '<path d="m9 18 6-6-6-6"/>',
+    reset: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+    zin: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M11 8v6M8 11h6"/>',
+    zout: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8 11h6"/>',
+  };
+  const icon = k => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') document.querySelectorAll('.vg-full').forEach(h => h.querySelector('.vg-expand')?.click());
+  });
+
+  // The graph frame's controls, as on GitHub's diagrams: full screen at the top
+  // right; pan, reset and zoom at the bottom right. Call after each dag().
+  function controls(svg) {
+    const host = svg.parentElement;
+    host.classList.add('vg-frame');
+    host.querySelectorAll(':scope > .vg-ctl').forEach(x => x.remove());
+    const z = zoomable(svg);
+    const btn = (k, title, fn, cls) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'vg-btn ' + (cls || ''); b.innerHTML = icon(k); b.title = title; b.setAttribute('aria-label', title);
+      b.onclick = fn;
+      return b;
+    };
+    const full = () => host.classList.contains('vg-full');
+    const expand = btn(full() ? 'close' : 'expand', full() ? 'Close full screen' : 'Full screen', () => {
+      const on = !full();
+      host.classList.toggle('vg-full', on);
+      document.documentElement.classList.toggle('vg-lock', on);
+      expand.innerHTML = icon(on ? 'close' : 'expand');
+      expand.title = on ? 'Close full screen' : 'Full screen'; expand.setAttribute('aria-label', expand.title);
+      z.fit();
+    }, 'vg-expand');
+    const top = document.createElement('div'); top.className = 'vg-ctl vg-top'; top.append(expand);
+    const pad = document.createElement('div'); pad.className = 'vg-ctl vg-pad';
+    pad.append(
+      btn('up', 'Pan up', () => z.pan(0, -0.2), 'p-up'), btn('zin', 'Zoom in', z.in, 'p-zin'),
+      btn('left', 'Pan left', () => z.pan(-0.2, 0), 'p-left'), btn('reset', 'Reset view', z.fit, 'p-reset'), btn('right', 'Pan right', () => z.pan(0.2, 0), 'p-right'),
+      btn('down', 'Pan down', () => z.pan(0, 0.2), 'p-down'), btn('zout', 'Zoom out', z.out, 'p-zout'),
+    );
+    host.append(top, pad);
+    return z;
   }
 
   function clip(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
@@ -241,5 +292,5 @@
     });
   }
 
-  window.VG = { dag, zoomable, focus, fromNetwork, fromPaths, num, when, day, esc, getJSON, copy, clip };
+  window.VG = { dag, zoomable, controls, focus, fromNetwork, fromPaths, num, when, day, esc, getJSON, copy, clip };
 })();

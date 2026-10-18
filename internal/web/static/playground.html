@@ -9,27 +9,13 @@
 <style>
   /* One column, read top to bottom: who wins so far, pick an attack, the verdict. Ink marks your choice,
      orange marks VIGIL's verdict, red marks the edge the cut severs. */
-  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
-  header.top { border-bottom: 1px solid var(--line); }
-  header.top .wrap { display: flex; align-items: center; gap: 18px; height: 64px; }
-  .mark { font: 800 22px/1 "Epilogue", sans-serif; letter-spacing: -0.04em; color: var(--text); text-decoration: none; }
-  .mark small { font: 500 15px "DM Sans", sans-serif; letter-spacing: 0; color: var(--dim); margin-left: 8px; }
-  header.top nav { margin-left: auto; display: flex; gap: 8px; align-items: center; }
-  header.top nav a.quiet { color: var(--dim); text-decoration: none; padding: 8px 10px; }
-  header.top nav a.quiet:hover { color: var(--text); }
-  .btn.ink { background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 600; }
 
   .hero { display: grid; grid-template-columns: 1fr auto; gap: 48px; align-items: end; padding: 64px 0 48px; }
-  h1 { font: 700 clamp(40px, 6vw, 68px)/1.02 "Epilogue", sans-serif; letter-spacing: -0.04em; margin: 0 0 18px; max-width: 17ch; }
-  .lede { font-size: 18px; line-height: 1.5; color: var(--dim); margin: 0; max-width: 54ch; }
   .score { display: grid; grid-template-columns: auto auto; column-gap: 14px; row-gap: 6px; align-items: baseline; min-width: 250px; }
   .score b { font: 700 40px/1 "Epilogue", sans-serif; letter-spacing: -0.03em; text-align: right; font-variant-numeric: tabular-nums; }
   .score span { color: var(--dim); font-size: 15px; }
   #s-new { color: var(--verdict); }
 
-  h2 { font: 700 26px/1.2 "Epilogue", sans-serif; letter-spacing: -0.02em; margin: 0 0 6px; }
-  .hint { color: var(--dim); margin: 0 0 20px; font-size: 15px; max-width: 70ch; }
-  section.block { padding: 40px 0; border-top: 1px solid var(--line); }
 
   .attacks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
   .attack { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: 8px; padding: 18px 18px 16px;
@@ -77,10 +63,6 @@
   .toggle { display: inline-flex; gap: 10px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin: 0 0 20px; cursor: pointer; font-size: 14px; }
   .toggle input { accent-color: var(--verdict); width: 16px; height: 16px; }
   .graph { position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 8px 16px; margin-bottom: 8px; touch-action: pan-y; }
-  .zoom { position: absolute; top: 10px; right: 10px; display: flex; gap: 4px; z-index: 2; }
-  .zoom button { width: 34px; height: 34px; padding: 0; font-size: 18px; line-height: 1; border-radius: 8px; background: #fff; }
-  .zoom button.fit { width: auto; padding: 0 12px; font-size: 13px; font-weight: 600; }
-  .zoom button:hover { border-color: var(--text); }
   .loading { display: flex; align-items: center; gap: 12px; padding: 40px 0; color: var(--dim); font-size: 16px; }
   .loading i { width: 10px; height: 10px; border-radius: 50%; background: var(--verdict); animation: pg-dot 1s ease-in-out infinite; }
   .loading i:nth-child(2) { animation-delay: .15s; } .loading i:nth-child(3) { animation-delay: .3s; }
@@ -104,18 +86,12 @@
   .who { font-size: 13px; font-weight: 600; color: var(--faint); white-space: nowrap; }
   .step .cmd { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
   .step .out { color: var(--dim); font-size: 13.5px; white-space: pre-wrap; margin-top: 4px; overflow-wrap: anywhere; }
-  .tag { font-size: 12.5px; font-weight: 600; padding: 4px 10px; border-radius: 6px; white-space: nowrap; background: #fff; border: 1px solid var(--line); color: var(--dim); }
-  .tag.stop { background: var(--verdict); border-color: var(--verdict); color: #fff; }
-  .tag.bad { background: var(--cut); border-color: var(--cut); color: #fff; }
 
   table.feed { width: 100%; border-collapse: collapse; font-size: 14px; }
   table.feed td { padding: 10px 8px; border-top: 1px solid var(--line); vertical-align: top; }
   table.feed td:first-child { color: var(--faint); white-space: nowrap; width: 1%; }
   table.feed td.in { font: 13px ui-monospace, monospace; overflow-wrap: anywhere; }
   table.feed td.vd { white-space: nowrap; width: 1%; }
-  footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--dim); font-size: 14px; }
-  footer .wrap { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
-  footer p { margin: 0; flex: 1; min-width: 260px; }
   .error { margin: 10px 0 0; }
 
   @media (max-width: 860px) {
@@ -131,9 +107,6 @@
     .ask { flex-direction: column; }
     .ask button { padding: 12px; }
     .step { grid-template-columns: 1fr; gap: 6px; }
-    .graph { overflow-x: auto; padding: 8px; }
-    .graph svg.dag { min-width: 640px; }
-    .zoom { position: sticky; left: 0; top: auto; right: auto; justify-content: flex-end; margin-bottom: 4px; }
     .step .tag { justify-self: start; }
   }
   @media (prefers-reduced-motion: reduce) { .attack, .attack .go { transition: none; } .attack:hover { transform: none; } .stamp.land, .fade, .step.fade, .attack.running::after, .loading i, table.feed tr.fresh td { animation: none; } }
@@ -298,8 +271,8 @@ async function render(t, quick) {
       <p class="reason wait" id="why">${esc(tidy(d.why || d.reason))}</p>
     </div>
     ${s && s.before_after ? `<label class="toggle"><input type="checkbox" id="before" ${t.before_fix ? 'checked' : ''}> Show the verdict from before we fixed this bug</label>` : ''}
-    <div class="graph"><div class="zoom"><button type="button" id="z-out" aria-label="Zoom out">−</button><button type="button" id="z-in" aria-label="Zoom in">+</button><button type="button" class="fit" id="z-fit">Fit</button></div><svg class="dag" id="sg" role="img" aria-label="The graph path behind this decision"></svg></div>
-    <p class="cap">${d.network && d.network.length ? 'The influence network FalkorDB cut with algo.maxFlow; the red edge is the cheapest cut.' : 'The graph path behind this decision.'} Decided in ${Number(d.graph_ms).toFixed(1)} ms of graph time. Hover anything to trace it; zoom with the buttons or Ctrl + scroll, drag to pan.</p>
+    <div class="graph"><svg class="dag" id="sg" role="img" aria-label="The graph path behind this decision"></svg></div>
+    <p class="cap">${d.network && d.network.length ? 'The influence network FalkorDB cut with algo.maxFlow; the red edge is the cheapest cut.' : 'The graph path behind this decision.'} Decided in ${Number(d.graph_ms).toFixed(1)} ms of graph time. Hover anything to trace it; drag to pan, Ctrl + scroll to zoom, or open it full screen.</p>
     <h4>Step by step</h4>
     ${steps.map(x => {
       const st = x.effect.unsafe ? 'bad' : (x.verdict !== 'ALLOW' || x.stage === 'redact') ? 'stop' : '';
@@ -330,9 +303,7 @@ async function render(t, quick) {
   const reveal = (el, cls) => { el.classList.remove('wait'); if (!reduced && !quick) el.classList.add(cls); };
   for (const row of document.querySelectorAll('.step')) { reveal(row, 'fade'); await wait(170); }
   const drawn = VG.dag(svg, g, { animate: !quick, stepMs: 200 });
-  const z = VG.zoomable(svg);
-  $('z-in').onclick = z.in; $('z-out').onclick = z.out; $('z-fit').onclick = z.fit;
-  svg.parentElement.scrollLeft = svg.parentElement.scrollWidth; // on a narrow screen, open at the verdict end
+  VG.controls(svg);
   await drawn;
   reveal($('vrow'), 'fade');
   if (!reduced && !quick) $('vrow').querySelector('.stamp').classList.add('land');

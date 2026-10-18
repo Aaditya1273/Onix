@@ -28,7 +28,7 @@ svg.dag { width: 100%; height: auto; margin: 22px 0 12px; }
 .edge path.hit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; }
 .edge.cut path.line { stroke: var(--cut); stroke-width: 3.5; }
 .edge.verdict path.line { stroke: var(--verdict); stroke-width: 2.5; }
-.elabel { fill: var(--dim); font-size: 11px; text-anchor: middle; font-family: ui-monospace, monospace; paint-order: stroke; stroke: var(--bg); stroke-width: 5px; stroke-linejoin: round; }
+.elabel { fill: var(--dim); font-size: 11px; text-anchor: middle; font-family: ui-monospace, monospace; paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 5px; stroke-linejoin: round; }
 .edge.cut .elabel { fill: var(--cut); font-weight: 700; }
 .arrow-grey { fill: var(--faint); } .arrow-cut { fill: var(--cut); } .arrow-verdict { fill: var(--verdict); }
 .node, .edge { transition: opacity .35s ease; }
@@ -45,7 +45,30 @@ svg.dag.live .edge.grey path.line, svg.dag.live .edge.verdict path.line { stroke
 svg.dag.live .edge.cut path.line { animation: vg-pulse 1.8s ease-in-out infinite; }
 @keyframes vg-flow { to { stroke-dashoffset: -24; } }
 @keyframes vg-pulse { 50% { stroke-width: 6; } }
-svg.dag.zoomed { cursor: grab; } svg.dag.dragging { cursor: grabbing; }
+svg.dag { cursor: grab; } svg.dag.dragging { cursor: grabbing; }
+/* The graph frame and its controls (VG.controls). */
+.vg-box { --halo: var(--panel); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 16px; margin: 18px 0 12px; max-width: 1200px; }
+.vg-box svg.dag { margin: 4px 0; }
+.vg-frame { position: relative; }
+.vg-ctl { position: absolute; z-index: 3; opacity: 0; transition: opacity .18s ease; }
+.vg-frame:hover > .vg-ctl, .vg-frame:focus-within > .vg-ctl, .vg-full > .vg-ctl { opacity: 1; }
+@media (hover: none) { .vg-ctl { opacity: 1; } }
+.vg-top { top: 10px; right: 10px; }
+.vg-pad { right: 10px; bottom: 10px; display: grid; grid-template-columns: repeat(3, 30px); grid-template-rows: repeat(3, 30px); gap: 4px;
+  grid-template-areas: ". up zin" "left reset right" ". down zout"; }
+.vg-btn { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border-radius: 7px; background: rgba(255, 255, 255, .92);
+  color: var(--dim); border: 1px solid var(--line); cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
+.vg-btn:hover { color: var(--text); border-color: var(--text); background: #fff; }
+.vg-btn:focus-visible { outline: 2px solid var(--verdict); outline-offset: 2px; }
+.vg-top .vg-btn { width: 34px; height: 34px; }
+.p-up { grid-area: up; } .p-zin { grid-area: zin; } .p-left { grid-area: left; } .p-reset { grid-area: reset; }
+.p-right { grid-area: right; } .p-down { grid-area: down; } .p-zout { grid-area: zout; }
+.vg-full { position: fixed !important; inset: 18px; z-index: 1000; margin: 0 !important; display: flex; align-items: center; justify-content: center;
+  background: var(--bg) !important; border: 1px solid var(--line); border-radius: 14px; padding: 56px 24px 24px !important;
+  box-shadow: 0 0 0 100vmax rgba(20, 16, 13, .55), 0 30px 80px rgba(0, 0, 0, .35); }
+.vg-full svg.dag { width: 100% !important; height: 100% !important; max-width: none !important; min-width: 0 !important; margin: 0 !important; }
+html.vg-lock { overflow: hidden; }
+@media (max-width: 560px) { .vg-pad { grid-template-columns: repeat(3, 28px); grid-template-rows: repeat(3, 28px); } .vg-btn { width: 28px; height: 28px; } }
 .vg-tip { position: absolute; z-index: 4; pointer-events: none; max-width: 340px; padding: 8px 11px; border-radius: 8px; background: var(--text); color: var(--bg);
   font: 13px/1.45 "DM Sans", sans-serif; transform: translate(-50%, calc(-100% - 14px)); opacity: 0; transition: opacity .12s; overflow-wrap: anywhere; }
 .vg-tip.on { opacity: 1; }
@@ -76,4 +99,27 @@ input[type=range] { width: 100%; accent-color: var(--verdict); }
 .error { color: var(--cut); }
 input[type=text]:focus, textarea:focus { outline: none; border-color: var(--verdict); }
 ::selection { background: var(--verdict); color: #fff; }
+/* Page frame shared by the playground and time travel: a header bar, one
+   centered column, sections read top to bottom. */
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+header.top { border-bottom: 1px solid var(--line); }
+header.top .wrap { display: flex; align-items: center; gap: 18px; height: 64px; }
+.mark { font: 800 22px/1 "Epilogue", sans-serif; letter-spacing: -0.04em; color: var(--text); text-decoration: none; }
+.mark small { font: 500 15px "DM Sans", sans-serif; letter-spacing: 0; color: var(--dim); margin-left: 8px; }
+header.top nav { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+header.top nav a.quiet { color: var(--dim); text-decoration: none; padding: 8px 10px; }
+header.top nav a.quiet:hover { color: var(--text); }
+.btn.ink { background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 600; }
+h1 { font: 700 clamp(40px, 6vw, 68px)/1.02 "Epilogue", sans-serif; letter-spacing: -0.04em; margin: 0 0 18px; max-width: 17ch; }
+.lede { font-size: 18px; line-height: 1.5; color: var(--dim); margin: 0; max-width: 54ch; }
+h2 { font: 700 26px/1.2 "Epilogue", sans-serif; letter-spacing: -0.02em; margin: 0 0 6px; }
+.hint { color: var(--dim); margin: 0 0 20px; font-size: 15px; max-width: 70ch; }
+section.block { padding: 40px 0; border-top: 1px solid var(--line); }
+.tag { font-size: 12.5px; font-weight: 600; padding: 4px 10px; border-radius: 6px; white-space: nowrap; background: #fff; border: 1px solid var(--line); color: var(--dim); }
+.tag.stop { background: var(--verdict); border-color: var(--verdict); color: #fff; }
+.tag.bad { background: var(--cut); border-color: var(--cut); color: #fff; }
+footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--dim); font-size: 14px; }
+footer .wrap { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+footer p { margin: 0; flex: 1; min-width: 260px; }
+@media (max-width: 560px) { header.top nav a.quiet, .mark small { display: none; } header.top .btn { font-size: 14px; white-space: nowrap; } }
 @media (max-width: 700px) { .big { font-size: 34px; } .ends { grid-template-columns: 1fr; } .screen { padding: 48px 16px 110px; } .bar { padding: 12px 16px; } }

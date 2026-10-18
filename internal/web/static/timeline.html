@@ -4,48 +4,138 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VIGIL Time Travel</title>
+<meta name="description" content="Scrub through every decision VIGIL made and watch the graph as it stood at each moment.">
 <link rel="stylesheet" href="vigil.css">
 <style>
-  select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; max-width: 100%; }
-  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
-  .when { font-size: 22px; font-variant-numeric: tabular-nums; }
+  /* Read top to bottom: which decision, where in time, what the graph knew then, and why it mattered. */
+  .hero { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 48px; align-items: end; padding: 64px 0 44px; }
+  .focus { background: #fff; border: 1px solid var(--line); border-left: 5px solid var(--verdict); border-radius: 12px; padding: 18px 20px; }
+  .focus.allow { border-left-color: var(--text); }
+  .focus .label { font-size: 13px; color: var(--faint); margin: 0 0 8px; }
+  .focus .tool { font: 600 15px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; margin: 10px 0 4px; }
+  .focus .meta { font-size: 13.5px; color: var(--dim); }
+  .stamp { display: inline-block; font: 800 18px/1 "Epilogue", sans-serif; padding: 7px 11px 5px; border-radius: 7px; background: var(--verdict); color: #fff; }
+  .stamp.allow { background: none; color: var(--text); box-shadow: inset 0 0 0 2px var(--text); }
+
+  .step-n { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--text); color: var(--bg);
+            font: 700 13px "Epilogue", sans-serif; margin-right: 10px; vertical-align: 3px; }
+  select { width: 100%; max-width: 760px; appearance: none; background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%235e544b' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 14px center;
+           color: var(--text); border: 1.5px solid var(--line); border-radius: 10px; padding: 13px 44px 13px 16px; font: 15px "DM Sans", sans-serif; cursor: pointer; }
+  select:hover { border-color: var(--text); }
+  select:focus-visible { outline: 3px solid var(--verdict); outline-offset: 2px; }
+
+  .clock { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+  .when { font: 700 clamp(28px, 3.4vw, 40px)/1 "Epilogue", sans-serif; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .pos { color: var(--dim); font-size: 15px; }
+  .track { position: relative; padding: 14px 0 10px; }
+  .track input[type=range] { width: 100%; margin: 0; }
+  .marks { position: absolute; left: 0; right: 0; top: 4px; height: 8px; pointer-events: none; }
+  .marks i { position: absolute; top: 0; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--verdict); box-shadow: 0 0 0 2px var(--bg); }
+  .moments { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 14px 0 20px; color: var(--dim); font-size: 14px; }
+  .moment { all: unset; cursor: pointer; font-size: 13px; padding: 6px 11px; border-radius: 8px; background: #fff; border: 1px solid var(--line); color: var(--text); }
+  .moment:hover { border-color: var(--text); }
+  .moment.on { background: var(--text); border-color: var(--text); color: var(--bg); }
+  .moment:focus-visible { outline: 3px solid var(--verdict); outline-offset: 2px; }
+  .moment b { font-weight: 700; margin-right: 6px; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .actions button { padding: 11px 20px; font-size: 15px; border-radius: 10px; }
+
+  .vg-box { --halo: #fff; max-width: none; margin: 0; padding: 12px 18px; background: #fff; }
+  .cap { color: var(--faint); font-size: 13px; margin: 10px 0 0; }
+  .empty { border: 1.5px dashed var(--line); border-radius: 12px; padding: 40px 24px; text-align: center; color: var(--faint); font-size: 16px; }
+  .answer { background: #fff; border: 1px solid var(--line); border-left: 5px solid var(--verdict); border-radius: 12px; padding: 18px 22px; margin-top: 18px; animation: tt-in .35s ease both; }
+  .answer h3 { font: 700 18px "Epilogue", sans-serif; margin: 0 0 8px; }
+  .answer p { margin: 0; font-size: 16px; line-height: 1.55; }
+  .answer code { display: block; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); font: 13px ui-monospace, monospace; color: var(--dim); overflow-wrap: anywhere; }
+  @keyframes tt-in { from { opacity: 0; transform: translateY(6px); } }
+  @media (max-width: 900px) { .hero { grid-template-columns: 1fr; gap: 24px; padding-top: 40px; } }
+  @media (prefers-reduced-motion: reduce) { .answer { animation: none; } }
 </style>
 </head>
 <body>
-<section class="screen" style="min-height:auto;padding-top:56px">
-  <div class="kicker">Time travel</div>
-  <p class="big">What did the agent know, and when?</p>
-  <p class="sub">Drag through every decision VIGIL made. The graph below is re-queried as it stood at that moment: every edge is filtered by the time its call happened, nothing is copied. Watch a path appear hop by hop across sessions.</p>
-  <div class="row"><label class="sub" for="focus">Decision</label><select id="focus"></select></div>
-  <div class="row"><input type="range" id="t" min="0" max="0" value="0"></div>
-  <div class="row"><span class="when" id="when"></span><span class="sub" id="pos"></span></div>
-  <div class="row" id="moments"></div>
-  <div class="row"><button class="primary" id="play">▶ Play</button><button id="why">Why?</button></div>
-  <svg class="dag" id="g"></svg>
-  <div class="why" id="answer" style="display:none"></div>
-  <p class="sub" id="empty"></p>
-</section>
-<div class="bar">
-  <span class="grow">One query per moment: the subgraph around this decision, filtered to edges that existed then.</span>
-  <a class="btn" href="reveal.html">Reveal</a>
-  <button id="share">Copy link to this moment</button>
-</div>
+<header class="top"><div class="wrap">
+  <a class="mark" href="https://github.com/Aaditya1273/Onix">VIGIL<small>Time travel</small></a>
+  <nav>
+    <a class="quiet" href="reveal.html">Reveal</a>
+    <a class="quiet" href="playground.html">Playground</a>
+    <button class="btn ink" id="share" type="button">Copy link to this moment</button>
+  </nav>
+</div></header>
+
+<main class="wrap">
+  <section class="hero">
+    <div>
+      <h1>What did the agent know, and when?</h1>
+      <p class="lede">Move through every decision VIGIL made. At each moment the graph is queried as it stood then, so you watch the path to a blocked call assemble, hop by hop, across sessions.</p>
+    </div>
+    <div class="focus" id="focus-card" aria-live="polite"><p class="label">Loading decisions…</p></div>
+  </section>
+
+  <section class="block">
+    <h2><span class="step-n">1</span>Pick a decision</h2>
+    <p class="hint">Blocked and rewritten calls first: those are the ones with a path worth replaying.</p>
+    <select id="focus" aria-label="Decision to travel through"></select>
+  </section>
+
+  <section class="block">
+    <h2><span class="step-n">2</span>Move through time</h2>
+    <p class="hint">Drag the slider, jump to a moment where the path changed, or press Play to watch it build.</p>
+    <div class="clock"><span class="when" id="when">–</span><span class="pos" id="pos"></span></div>
+    <div class="track"><div class="marks" id="marks" aria-hidden="true"></div><input type="range" id="t" min="0" max="0" value="0" aria-label="Moment in time"></div>
+    <div class="moments" id="moments"></div>
+    <div class="actions"><button class="primary" id="play" type="button">▶ Play the path</button><button id="why" type="button">Why was it stopped?</button></div>
+  </section>
+
+  <section class="block">
+    <h2>The graph at this moment</h2>
+    <p class="hint">Only edges that existed at the chosen moment. Hover anything to trace it; open it full screen from the corner.</p>
+    <div class="vg-box"><svg class="dag" id="g" role="img" aria-label="The graph around this decision at the chosen moment"></svg></div>
+    <p class="cap">One query per moment: the subgraph around this decision, filtered to edges that existed then. Nothing is copied.</p>
+    <div id="empty"></div>
+    <div id="answer"></div>
+  </section>
+</main>
+
+<footer><div class="wrap">
+  <p>Time travel reads the decision chain VIGIL keeps in FalkorDB: every call, read and verdict, linked in order.</p>
+</div></footer>
+
 <script src="vigil.js"></script>
 <script>
 const { esc, num, when } = VG;
 const $ = id => document.getElementById(id);
-let ticks = [], focus = '', moments = [], T = 0, timer = null, pending = null;
+let ticks = [], stops = [], focus = '', moments = [], T = 0, timer = null, pending = null;
 const q = new URLSearchParams(location.search);
 // Timestamps are nanoseconds (~1.8e18), past JavaScript's exact integers, so a
 // moment read from JSON can round a little below the stored value. Asking "as
 // of" 1 µs later keeps the edge the moment is named for.
 const asOf = t => Math.round(t + 1000);
+const clock = ns => new Date(ns / 1e6).toISOString().slice(11, 23); // HH:MM:SS.mmm
+const stopped = s => /BLOCK|PAUSE/.test(s.verdict) || s.stage === 'redact';
+const word = s => s.verdict === 'BLOCK' ? 'Blocked' : s.verdict === 'PAUSE' ? 'Paused' : s.stage === 'redact' ? 'Rewritten' : 'Allowed';
+
+// A session id reads as its last part: "cc-m1792314490-a3" is session a3, a
+// Claude Code UUID its last eight characters.
+const shortSession = id => id.replace(/^(cc|codex|gem|pg)-/, '').split('-').pop().slice(-8);
+const tidy = s => String(s || '')
+  .replace(/\s*\(at [^()]*decision [^()]*\)/g, '')
+  .replace(/value#([0-9a-f]{8})[0-9a-f]+/g, 'value #$1')
+  .replace(/\b(?:cc|codex|gem|pg)-[\w-]+/g, m => shortSession(m));
 
 function nodeLabel(id, kind, label) {
-  if (kind === 'session') return { label: 'session ' + id.replace(/^(cc|codex|gem|pg)-/, '').slice(0, 10), sub: '' };
+  if (kind === 'session') return { label: 'session ' + shortSession(id), sub: '' };
   if (kind === 'value') return { label: label || id, sub: id };
-  if (kind === 'decision') return { label: label || id, sub: '' };
   return { label: label || id, sub: '' };
+}
+
+function card() {
+  const s = stops.find(x => x.id === focus);
+  if (!s) return;
+  $('focus-card').className = 'focus' + (stopped(s) ? '' : ' allow');
+  $('focus-card').innerHTML = `<p class="label">The decision you are examining</p>
+    <span class="stamp${stopped(s) ? '' : ' allow'}">${esc(word(s))}</span>
+    <div class="tool">${esc(s.tool)}</div>
+    <div class="meta">${esc(s.stage)} · ${esc(when(s.ts))}</div>`;
 }
 
 async function draw(t) {
@@ -53,6 +143,7 @@ async function draw(t) {
   $('when').textContent = when(t);
   const i = ticks.findIndex(x => x.ts > t);
   $('pos').textContent = ticks.length ? `decision ${num(i < 0 ? ticks.length : i)} of ${num(ticks.length)}` : '';
+  document.querySelectorAll('.moment').forEach(m => m.classList.toggle('on', +m.dataset.t === t));
   const d = await VG.getJSON(`/api/v1/vigil/timeline/asof?id=${encodeURIComponent(focus)}&t=${asOf(t)}`);
   const nodes = {}, edges = [];
   const add = (id, kind, label) => {
@@ -65,22 +156,32 @@ async function draw(t) {
     add(e.to, e.to_kind, e.to_label);
     edges.push({ from: e.from, to: e.to, label: e.rel, verdict: e.rel === 'DECIDED' && /BLOCK|PAUSE|redact/.test(e.to_label) });
   });
-  $('empty').textContent = d.edges.length ? '' : 'At this moment, none of this had happened yet.';
+  $('empty').innerHTML = d.edges.length ? '' : '<div class="empty">At this moment none of this had happened yet. Move forward in time.</div>';
   VG.dag($('g'), { nodes: Object.values(nodes), edges }, { animate: false });
+  VG.controls($('g'));
 }
 
 function schedule(t) { clearTimeout(pending); pending = setTimeout(() => draw(t), 90); }
 
+function marks() {
+  const max = Math.max(1, ticks.length - 1);
+  $('marks').innerHTML = moments.map(m => {
+    let i = ticks.findIndex(x => x.ts > m); if (i < 0) i = ticks.length;
+    return `<i style="left:${(Math.max(0, i - 1) / max) * 100}%" title="${esc(clock(m))}"></i>`;
+  }).join('');
+}
+
 async function load() {
-  $('answer').style.display = 'none';
+  $('answer').innerHTML = '';
+  card();
   const all = await VG.getJSON(`/api/v1/vigil/timeline/asof?id=${encodeURIComponent(focus)}&t=${Date.now() * 1e6}`);
   moments = [...new Set(all.edges.map(e => e.ts))].sort((a, b) => a - b);
   $('moments').innerHTML = moments.length
-    ? '<span class="sub">Moments this path changed:</span>' + moments.map((m, i) => `<span class="pill" data-t="${m}">${i + 1}. ${when(m)}</span>`).join('')
-    : '<span class="sub">This decision carried no value read elsewhere; its path is just the call and its verdict.</span>';
-  document.querySelectorAll('#moments .pill').forEach(p => (p.onclick = () => jump(+p.dataset.t)));
-  const start = q.get('t') ? +q.get('t') : (moments.length ? moments[moments.length - 1] : Date.now() * 1e6);
-  jump(start);
+    ? '<span>Moments the path changed:</span>' + moments.map((m, i) => `<button type="button" class="moment" data-t="${m}"><b>${i + 1}</b>${esc(clock(m))}</button>`).join('')
+    : '<span>This decision carried no value read elsewhere; its path is just the call and its verdict.</span>';
+  document.querySelectorAll('.moment').forEach(p => (p.onclick = () => jump(+p.dataset.t)));
+  marks();
+  jump(q.get('t') ? +q.get('t') : (moments.length ? moments[moments.length - 1] : Date.now() * 1e6));
 }
 
 function jump(t) {
@@ -91,16 +192,16 @@ function jump(t) {
 
 $('t').oninput = e => { const x = ticks[+e.target.value]; if (x) schedule(x.ts); };
 $('play').onclick = () => {
-  if (timer) { clearInterval(timer); timer = null; $('play').textContent = '▶ Play'; return; }
+  if (timer) { clearInterval(timer); timer = null; $('play').textContent = '▶ Play the path'; return; }
   const seq = [moments.length ? moments[0] - 1 : T].concat(moments);
   let i = 0; $('play').textContent = '❚❚ Pause';
-  const step = () => { if (i >= seq.length) { clearInterval(timer); timer = null; $('play').textContent = '▶ Play'; return; } jump(seq[i++]); };
+  const step = () => { if (i >= seq.length) { clearInterval(timer); timer = null; $('play').textContent = '▶ Play the path'; return; } jump(seq[i++]); };
   step(); timer = setInterval(step, 1300);
 };
 $('why').onclick = async () => {
   const d = await VG.getJSON(`/api/v1/vigil/timeline/why?id=${encodeURIComponent(focus)}&t=${asOf(T)}`);
-  $('answer').style.display = 'block';
-  $('answer').innerHTML = `<b>As of ${esc(when(T))}:</b> ${esc(d.why.sentence)}${d.why.edge ? `<div class="mono" style="color:var(--dim);margin-top:6px">counterfactual edge: ${esc(d.why.edge)}</div>` : ''}`;
+  $('answer').innerHTML = `<div class="answer"><h3>Why, as of ${esc(when(T))}</h3><p>${esc(tidy(d.why.sentence))}</p>${d.why.edge ? `<code>The edge that decided it: ${esc(tidy(d.why.edge))}</code>` : ''}</div>`;
+  $('answer').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'nearest' });
 };
 $('focus').onchange = e => { focus = e.target.value; load(); };
 $('share').onclick = e => { const u = new URL(location.href.split('?')[0]); u.searchParams.set('id', focus); u.searchParams.set('t', T); VG.copy(u.toString(), e.target); };
@@ -109,16 +210,20 @@ $('share').onclick = e => { const u = new URL(location.href.split('?')[0]); u.se
   try {
     const [tk, ds] = await Promise.all([VG.getJSON('/api/v1/vigil/timeline/ticks'), VG.getJSON('/api/v1/vigil/graph/decisions?limit=60')]);
     ticks = tk.ticks || [];
-    const stops = ds.decisions || [];
+    stops = ds.decisions || [];
     $('t').max = Math.max(0, ticks.length - 1);
-    if (!stops.length) { $('empty').textContent = 'Nothing has been stopped or rewritten yet, so there is no path to travel along.'; return; }
+    if (!stops.length) {
+      $('focus-card').innerHTML = '<p class="label">Nothing to examine yet</p><div class="meta">Nothing has been stopped or rewritten yet, so there is no path to travel along.</div>';
+      $('empty').innerHTML = '<div class="empty">No stopped or rewritten decisions yet.</div>';
+      return;
+    }
     const order = s => ({ exfiltration: 0, redact: 1, provenance: 2 }[s.stage] ?? 9);
     stops.sort((a, b) => order(a) - order(b) || b.ts - a.ts);
-    $('focus').innerHTML = stops.map(s => `<option value="${esc(s.id)}">${esc(s.verdict)} · ${esc(s.stage)} · ${esc(s.tool)} · ${esc(when(s.ts))}</option>`).join('');
+    $('focus').innerHTML = stops.map(s => `<option value="${esc(s.id)}">${esc(word(s))}: ${esc(s.tool)} (${esc(s.stage)}), ${esc(when(s.ts))}</option>`).join('');
     focus = q.get('id') && stops.some(s => s.id === q.get('id')) ? q.get('id') : stops[0].id;
     $('focus').value = focus;
     load();
-  } catch (err) { $('empty').innerHTML = `<span class="error">${esc(err.message)}</span>`; }
+  } catch (err) { $('empty').innerHTML = `<div class="empty error">${esc(err.message)}</div>`; }
 })();
 </script>
 </body>

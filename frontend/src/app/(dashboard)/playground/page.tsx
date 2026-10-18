@@ -2,7 +2,7 @@
 
 import Script from 'next/script'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { FlaskConical, Minus, Plus, Maximize2, Link2 } from 'lucide-react'
+import { FlaskConical, Link2 } from 'lucide-react'
 import './graph.css'
 
 // The public playground (VIGIL_PLAYGROUND=1): the real firewall on its own
@@ -23,7 +23,7 @@ interface FeedRow { ts: number; scenario: string; input: string; verdict: string
 type Graph = { nodes: { id: string; label: string; sub?: string; kind?: string }[]; edges: { from: string; to: string; label?: string; cut?: boolean; verdict?: boolean }[] }
 interface VGApi {
   dag: (svg: SVGSVGElement, g: Graph, o: { animate: boolean; stepMs: number }) => Promise<void>
-  zoomable: (svg: SVGSVGElement) => { in: () => void; out: () => void; fit: () => void }
+  controls: (svg: SVGSVGElement) => void
   focus: (svg: SVGSVGElement, fn: ((n: { label: string }) => boolean) | null) => void
   fromNetwork: (e: FlowEdge[]) => Graph
   fromPaths: (p: string[]) => Graph
@@ -92,7 +92,6 @@ export default function PlaygroundPage() {
   const [landed, setLanded] = useState(false)
   const [awake, setAwake] = useState(true)
   const svg = useRef<SVGSVGElement>(null)
-  const zoom = useRef<{ in: () => void; out: () => void; fit: () => void } | null>(null)
   const result = useRef<HTMLDivElement>(null)
   const key = world ? 'sk_live_pg' + world : ''
 
@@ -160,7 +159,7 @@ export default function PlaygroundPage() {
       g.nodes.forEach(n => (n.label = tidy(n.label)))
       if (!svg.current) return
       const drawn = VG.dag(svg.current, g, { animate: !reduced, stepMs: 200 })
-      zoom.current = VG.zoomable(svg.current)
+      VG.controls(svg.current)
       await drawn
       if (live) setLanded(true)
     })()
@@ -291,15 +290,10 @@ export default function PlaygroundPage() {
             )}
 
             <div className="vg-graph rounded-xl border border-gray-200 bg-[#f5f1ea] px-4 py-2">
-              <div className="absolute top-2.5 right-2.5 flex gap-1 z-[2]">
-                <button type="button" aria-label="Zoom out" onClick={() => zoom.current?.out()} className="w-8 h-8 grid place-items-center rounded-lg bg-white border border-gray-200 hover:border-gray-900"><Minus className="w-4 h-4" /></button>
-                <button type="button" aria-label="Zoom in" onClick={() => zoom.current?.in()} className="w-8 h-8 grid place-items-center rounded-lg bg-white border border-gray-200 hover:border-gray-900"><Plus className="w-4 h-4" /></button>
-                <button type="button" aria-label="Fit" onClick={() => zoom.current?.fit()} className="h-8 px-2.5 flex items-center gap-1 rounded-lg bg-white border border-gray-200 hover:border-gray-900 text-xs font-semibold"><Maximize2 className="w-3.5 h-3.5" />Fit</button>
-              </div>
               <svg ref={svg} className="dag my-2" role="img" aria-label="The graph path behind this decision" />
             </div>
             <p className="text-xs text-gray-400 mt-2 mb-6">
-              {d.network?.length ? 'The influence network FalkorDB cut with algo.maxFlow; the red edge is the cheapest cut.' : 'The graph path behind this decision.'} Decided in {Number(d.graph_ms).toFixed(1)} ms of graph time. Hover anything to trace it; zoom with the buttons or Ctrl + scroll, drag to pan.
+              {d.network?.length ? 'The influence network FalkorDB cut with algo.maxFlow; the red edge is the cheapest cut.' : 'The graph path behind this decision.'} Decided in {Number(d.graph_ms).toFixed(1)} ms of graph time. Hover anything to trace it; drag to pan, Ctrl + scroll to zoom, or open it full screen from the corner.
             </p>
 
             <h4 className="font-semibold text-gray-900 mb-1">Step by step</h4>

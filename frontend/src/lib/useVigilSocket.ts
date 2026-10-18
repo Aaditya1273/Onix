@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 /**
  * Live connection to the control plane's event stream.
@@ -23,20 +23,38 @@ export interface VigilEvent {
   [key: string]: unknown
 }
 
-/** Returns whether the socket is currently connected. */
-export function useVigilSocket(onMessage: (msg: VigilEvent) => void): boolean {
-  const [live, setLive] = useState(false)
+/**
+ * The socket's real state: `connecting` while an attempt is open, `connected`
+ * once the server accepted it, `disconnected` after it closed or failed (a new
+ * attempt is scheduled `retryInMs` later; backoff doubles up to 30 s).
+ */
+export type SocketState =
+  | { state: 'connecting' }
+  | { state: 'connected'; since: number }
+  | { state: 'disconnected'; retryInMs: number; attempts: number }
+
+export function useVigilSocket(onMessage: (msg: VigilEvent) => void): SocketState {
+  const [status, setStatus] = useState<SocketState>({ state: 'connecting' })
 
   // Held in a ref so callers do not have to memoize their handler; a new
   // closure each render would otherwise tear down and rebuild the socket.
+  // Updated after commit (refs must not be written during render).
   const handler = useRef(onMessage)
-  handler.current = onMessage
+  useLayoutEffect(() => { handler.current = onMessage })
 
   useEffect(() => {
     let ws: WebSocket | null = null
     let retry = 1000
     let timer: ReturnType<typeof setTimeout> | null = null
     let closed = false
+    let attempts = 0
+
+    const scheduleRetry = () => {
+      attempts++
+      setStatus({ state: 'disconnected', retryInMs: retry, attempts })
+      timer = setTimeout(() => { if (!closed) setStatus({ state: 'connecting' }); connect() }, retry)
+      retry = Math.min(retry * 2, 30000)
+    }
 
     const connect = () => {
       if (closed) return
@@ -44,14 +62,14 @@ export function useVigilSocket(onMessage: (msg: VigilEvent) => void): boolean {
         ws = new WebSocket(WS_URL)
       } catch {
         // Constructor throws on a malformed URL; retry rather than crash the page.
-        timer = setTimeout(connect, retry)
-        retry = Math.min(retry * 2, 30000)
+        scheduleRetry()
         return
       }
 
       ws.onopen = () => {
-        setLive(true)
+        setStatus({ state: 'connected', since: Date.now() })
         retry = 1000
+        attempts = 0
       }
 
       ws.onmessage = (e) => {
@@ -63,10 +81,8 @@ export function useVigilSocket(onMessage: (msg: VigilEvent) => void): boolean {
       }
 
       ws.onclose = () => {
-        setLive(false)
         if (closed) return
-        timer = setTimeout(connect, retry)
-        retry = Math.min(retry * 2, 30000)
+        scheduleRetry()
       }
 
       ws.onerror = () => ws?.close()
@@ -80,5 +96,5 @@ export function useVigilSocket(onMessage: (msg: VigilEvent) => void): boolean {
     }
   }, [])
 
-  return live
+  return status
 }

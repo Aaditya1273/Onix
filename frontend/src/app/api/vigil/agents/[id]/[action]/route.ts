@@ -1,29 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { api } from '@/lib/backend'
+import { proxy } from '@/lib/proxy'
 
-export async function POST(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string; action: string }> }
-) {
-  try {
-    const { id, action } = await params
-    const BACKEND_URL = api(`/vigil/agents/${id}/${action}`)
+const ACTIONS = new Set(['kill', 'pause', 'resume'])
 
-    const res = await fetch(BACKEND_URL, {
-      method: 'POST',
-      cache: 'no-store',
-    })
-
-    if (!res.ok) {
-      return NextResponse.json({ error: 'Backend returned an error' }, { status: res.status })
-    }
-
-    return NextResponse.json({ status: 'ok' })
-  } catch (error) {
-    console.error('Error proxying agent action to backend:', error)
-    return NextResponse.json(
-      { error: 'Failed to connect to VIGIL Go backend' },
-      { status: 503 }
-    )
-  }
+export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string; action: string }> }) {
+  const { id, action } = await params
+  if (!ACTIONS.has(action)) return NextResponse.json({ error: 'Unknown action.' }, { status: 404 })
+  return proxy(`/vigil/agents/${encodeURIComponent(id)}/${action}`, { method: 'POST', control: true })
 }

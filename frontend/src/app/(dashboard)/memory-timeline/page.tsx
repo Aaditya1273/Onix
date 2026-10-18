@@ -1,239 +1,175 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { History, AlertTriangle, Search, GitBranch, Ban } from 'lucide-react'
-import { EntityGraph, GraphContext } from '@/components/EntityGraph'
+import { useState } from 'react'
+import { Ban, GitBranch, Search } from 'lucide-react'
+import { EntityGraph, type GraphContext } from '@/components/EntityGraph'
+import { useResource } from '@/lib/useResource'
+import { ResourceGate, StatePanel } from '@/components/app/ui'
 
-interface MemoryResult {
-  question: string
-  entity_paths: string[]
-  graph_context: GraphContext
-  chunks: { source_title?: string; source_upload_time?: string; chunk_content?: string }[]
-}
+interface Fact { id: string; subject: string; text: string; trust: string; authority?: string; valid_from: number; valid_to?: number }
 
 interface TemporalFact {
   subject: string
-  has_signal: boolean
   abstain: boolean
   answer: string
-  current_paths: string[]
+  facts?: Fact[]
   current_contexts: string[]
-  history_paths: string[]
   history_contexts: string[]
   query_time_ms: number
 }
 
-// The seeded example built specifically to demonstrate temporal reasoning:
-// an on-call fact recorded in session 4, superseded in session 22.
-const DEFAULT_QUESTION = 'Has the on-call engineer changed across sessions? Which fact was superseded?'
-const DEFAULT_SUBJECT = 'on-call engineer'
+interface MemoryResult {
+  question: string
+  graph_context: GraphContext
+  facts?: Fact[]
+  chunks: { source_title?: string; source_upload_time?: string; chunk_content?: string }[]
+}
 
-function isSupersededSentence(text: string) {
-  const t = text.toLowerCase()
-  return t.includes('superseded') || t.includes('fact_update')
+// The seeded example built to show temporal reasoning: an on-call fact
+// recorded first, then superseded by a newer one.
+const DEFAULT_SUBJECT = 'on-call engineer'
+const DEFAULT_QUESTION = 'Has the on-call engineer changed across sessions? Which fact was superseded?'
+
+// Validity windows are stored as whole days (UTC midnight), so show the date in UTC.
+const day = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+const words = (s?: string) => (s ? s.toLowerCase().replace(/_/g, ' ') : '—')
+
+function Timeline({ facts }: { facts: Fact[] }) {
+  const sorted = [...facts].sort((a, b) => a.valid_from - b.valid_from)
+  return (
+    <ol className="relative ml-2 border-l-2 border-[#e6ded2] space-y-4">
+      {sorted.map(f => {
+        const current = !f.valid_to
+        return (
+          <li key={f.id} className="relative pl-5">
+            <span aria-hidden="true" className={`absolute -left-[7px] top-1.5 w-3 h-3 rounded-full border-2 ${current ? 'bg-[#ff6b00] border-[#ff6b00]' : 'bg-white border-[#8f8478]'}`} />
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className={`text-[12px] font-semibold px-2 py-0.5 rounded-md ${current ? 'bg-[#fdeee4] text-[#a8380a]' : 'bg-[#f1ede7] text-[#5e544b]'}`}>{current ? 'Current' : 'Superseded'}</span>
+              <span className="app-meta">{day(f.valid_from)} → {f.valid_to ? day(f.valid_to) : 'now'}</span>
+            </div>
+            <p className={`mt-1 text-[15px] leading-[22px] ${current ? 'text-[#14100d] font-medium' : 'text-[#5e544b]'}`}>{f.text}</p>
+            <p className="app-meta">Source trust: {words(f.trust)}{f.authority ? ` · authority: ${words(f.authority)}` : ''}</p>
+          </li>
+        )
+      })}
+    </ol>
+  )
 }
 
 export default function MemoryTimelinePage() {
-  const [question, setQuestion] = useState('')
-  const [result, setResult] = useState<MemoryResult | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [err, setErr] = useState<string | null>(null)
-
-  const [subject, setSubject] = useState('')
-  const [fact, setFact] = useState<TemporalFact | null>(null)
-  const [factLoading, setFactLoading] = useState(true)
-  const [factErr, setFactErr] = useState<string | null>(null)
-
-  const run = async (q: string) => {
-    setLoading(true)
-    setErr(null)
-    try {
-      const url = `/api/v1/memory?question=${encodeURIComponent(q || DEFAULT_QUESTION)}`
-      const r = await fetch(url, { cache: 'no-store' })
-      const body = await r.json()
-      if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`)
-      setResult(body)
-    } catch (e: any) {
-      setErr(e.message || 'request failed')
-      setResult(null)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const runFact = async (s: string) => {
-    const q = s.trim() || DEFAULT_SUBJECT
-    setFactLoading(true)
-    setFactErr(null)
-    try {
-      const r = await fetch(`/api/v1/memory/fact?subject=${encodeURIComponent(q)}`, { cache: 'no-store' })
-      const body = await r.json()
-      if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`)
-      setFact(body)
-    } catch (e: any) {
-      setFactErr(e.message || 'request failed')
-      setFact(null)
-    } finally {
-      setFactLoading(false)
-    }
-  }
-
-  useEffect(() => { run(DEFAULT_QUESTION); runFact(DEFAULT_SUBJECT) }, [])
-
-  // Sort chunks oldest-first so the timeline reads chronologically, like
-  // GitHub blame — the most useful order for "what changed and when".
-  const timeline = [...(result?.chunks || [])].sort((a, b) =>
-    (a.source_upload_time || '').localeCompare(b.source_upload_time || ''))
+  const [subjectInput, setSubjectInput] = useState('')
+  const [subject, setSubject] = useState(DEFAULT_SUBJECT)
+  const [questionInput, setQuestionInput] = useState('')
+  const [question, setQuestion] = useState(DEFAULT_QUESTION)
+  const trace = (s: string) => { setSubjectInput(s); setSubject(s.trim() || DEFAULT_SUBJECT) }
 
   return (
-    <div className="p-8 max-w-6xl mx-auto animate-fadeIn">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Memory Timeline</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Facts in FalkorDB with validity windows, SUPERSEDES edges, and provenance authority (the
-          lowest trust of everything a fact was derived from). Ask about something never recorded
-          (e.g. "gym time") and it abstains instead of guessing.
-        </p>
-      </div>
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fadeIn">
+      <h1>Memory Timeline</h1>
+      <p>What VIGIL remembers across sessions: each fact with the window it was true in, what replaced it, and how far its source can be trusted. Ask about something never recorded and it answers NOT_IN_HISTORY instead of guessing.</p>
 
-      {/* --- Fact lookup: current value + supersession history, GitHub-blame style --- */}
-      <form
-        onSubmit={(e) => { e.preventDefault(); runFact(subject) }}
-        className="card p-5 mb-6 flex gap-2"
-      >
-        <div className="relative flex-1">
-          <GitBranch className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            placeholder={`Look up a fact's history, e.g. "${DEFAULT_SUBJECT}"`}
-            className="w-full pl-9 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
-          />
+      <section aria-labelledby="mt-trace" className="mt-6 mb-8">
+        <h2 id="mt-trace" className="app-h2">Trace a fact</h2>
+        <p className="app-sub mb-3">The current value of a fact and every value it replaced.</p>
+        <form onSubmit={e => { e.preventDefault(); trace(subjectInput) }} className="app-card p-4 sm:p-5 mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+            <div className="app-field flex-1">
+              <label htmlFor="mt-subject">Fact subject</label>
+              <div className="relative">
+                <GitBranch className="w-4 h-4 text-[#6b6158] absolute left-3 top-1/2 -translate-y-1/2" aria-hidden="true" />
+                <input id="mt-subject" value={subjectInput} onChange={e => setSubjectInput(e.target.value)} className="app-input" style={{ paddingLeft: 36 }} placeholder={`e.g. ${DEFAULT_SUBJECT}`} />
+              </div>
+            </div>
+            <button type="submit" className="app-btn app-btn-primary">Trace fact</button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 mt-3">
+            <span className="app-meta">Try:</span>
+            <button type="button" className="app-btn app-btn-secondary app-btn-sm" aria-pressed={subject === DEFAULT_SUBJECT} onClick={() => trace(DEFAULT_SUBJECT)}>{DEFAULT_SUBJECT}</button>
+            <button type="button" className="app-btn app-btn-secondary app-btn-sm" aria-pressed={subject === 'gym time'} onClick={() => trace('gym time')}>gym time <span className="app-meta">(never recorded)</span></button>
+          </div>
+        </form>
+        <FactTrace key={subject} subject={subject} />
+      </section>
+
+      <section aria-labelledby="mt-ask">
+        <h2 id="mt-ask" className="app-h2">Ask the memory</h2>
+        <p className="app-sub mb-3">Matches the words of a question against recorded facts and the SUPERSEDES edges between them.</p>
+        <form onSubmit={e => { e.preventDefault(); setQuestion(questionInput.trim() || DEFAULT_QUESTION) }} className="app-card p-4 sm:p-5 mb-4 flex flex-col sm:flex-row sm:items-end gap-3">
+          <div className="app-field flex-1">
+            <label htmlFor="mt-question">Question</label>
+            <div className="relative">
+              <Search className="w-4 h-4 text-[#6b6158] absolute left-3 top-1/2 -translate-y-1/2" aria-hidden="true" />
+              <input id="mt-question" value={questionInput} onChange={e => setQuestionInput(e.target.value)} className="app-input" style={{ paddingLeft: 36 }} placeholder={DEFAULT_QUESTION} />
+            </div>
+          </div>
+          <button type="submit" className="app-btn app-btn-primary">Ask memory</button>
+        </form>
+        <MemoryAnswer key={question} question={question} />
+      </section>
+    </div>
+  )
+}
+
+function FactTrace({ subject }: { subject: string }) {
+  const r = useResource<TemporalFact>(`/api/v1/memory/fact?subject=${encodeURIComponent(subject)}`)
+  return (
+    <ResourceGate r={r} loading={`Tracing “${subject}”…`}>
+      {f => f.abstain ? (
+        <div className="app-panel p-4 sm:p-5 flex items-start gap-3" role="status">
+          <Ban className="w-5 h-5 text-[#5e544b] shrink-0 mt-0.5" aria-hidden="true" />
+          <div>
+            <p className="font-semibold">No fact recorded about “{f.subject}”</p>
+            <p className="app-sub mt-1">The graph answered <code className="app-mono px-1.5 py-0.5 rounded bg-[#f1ede7] text-[#14100d]">NOT_IN_HISTORY</code>, so VIGIL abstains rather than make an answer up.</p>
+          </div>
         </div>
-        <button type="submit" className="btn-orange" disabled={factLoading}>
-          {factLoading ? 'Looking up…' : 'Trace fact'}
-        </button>
-      </form>
-
-      {factErr && (
-        <div className="px-4 py-3 rounded-xl bg-orange-50 border border-orange-200 text-orange-700 text-sm flex items-center gap-2 mb-6">
-          <AlertTriangle className="w-4 h-4" />
-          {factErr}
+      ) : (
+        <div className="app-panel p-4 sm:p-5">
+          <span className="app-label">Current value of “{f.subject}”</span>
+          <p className="text-[19px] leading-[26px] font-semibold mt-1 mb-4">{f.answer}</p>
+          {f.facts?.length ? <Timeline facts={f.facts} /> : (
+            // Older servers return sentences only.
+            <ul className="space-y-1.5 text-[14px]">
+              {f.current_contexts.map((c, i) => <li key={`c${i}`}><strong>Current:</strong> {c}</li>)}
+              {f.history_contexts.map((c, i) => <li key={`h${i}`} className="text-[#5e544b]">Earlier: {c}</li>)}
+            </ul>
+          )}
+          <p className="app-meta mt-4">Answered by the graph in {f.query_time_ms < 1 ? '<1' : f.query_time_ms.toFixed(1)} ms.</p>
         </div>
       )}
+    </ResourceGate>
+  )
+}
 
-      {fact && (
-        <div className="card overflow-hidden mb-6">
-          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-800">
-              Fact: <span className="font-mono text-orange-700">{fact.subject}</span>
-            </h2>
-            <span className="text-xs text-gray-400">{fact.query_time_ms.toFixed(1)}ms · Cypher on FalkorDB</span>
+function chunkText(c: MemoryResult['chunks'][number]) {
+  const raw = c.chunk_content || ''
+  try { return (JSON.parse(raw) as { content?: { text?: string } }).content?.text || raw } catch { return raw || c.source_title || '' }
+}
+
+function MemoryAnswer({ question }: { question: string }) {
+  const r = useResource<MemoryResult>(`/api/v1/memory?question=${encodeURIComponent(question)}`)
+  return (
+    <ResourceGate r={r} loading="Searching the memory graph…"
+      isEmpty={d => !(d.facts?.length) && !d.chunks?.length}
+      empty={<StatePanel kind="empty" title="No recorded fact matches this question">Nothing in the memory graph shares its key words. VIGIL does not guess an answer.</StatePanel>}>
+      {d => (
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] gap-4">
+          <div className="app-panel p-4 sm:p-5 min-w-0">
+            <h3 className="app-h3" style={{ marginBottom: 12 }}>How the facts connect</h3>
+            <EntityGraph graphContext={d.graph_context} label="Fact graph" height={300}
+              emptyTitle="No edges between these facts" emptyText="The matching facts are not linked by a SUPERSEDES or DERIVED_FROM edge." />
           </div>
-
-          <div className="px-6 py-4 border-b border-gray-100">
-            {fact.abstain ? (
-              <div className="flex items-center gap-2 text-sm text-gray-500">
-                <Ban className="w-4 h-4" />
-                <span className="pill pill-gray font-mono">NOT_IN_HISTORY</span>
-                <span>— the graph has no fact about this subject; abstaining rather than guessing.</span>
-              </div>
-            ) : (
-              <div>
-                <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wider mb-1">Current value</p>
-                {fact.current_contexts.slice(0, 3).map((c, i) => (
-                  <p key={i} className="text-sm text-gray-800 mb-1">{c}</p>
+          <div className="app-panel p-4 sm:p-5 min-w-0">
+            <h3 className="app-h3" style={{ marginBottom: 12 }}>Matching facts, oldest first</h3>
+            {d.facts?.length ? <Timeline facts={d.facts} /> : (
+              <ol className="space-y-2">
+                {[...d.chunks].sort((a, b) => (a.source_upload_time || '').localeCompare(b.source_upload_time || '')).map((c, i) => (
+                  <li key={i} className="text-[14px]"><span className="app-meta block">{c.source_upload_time ? day(Date.parse(c.source_upload_time)) : '—'}</span>{chunkText(c)}</li>
                 ))}
-                {fact.current_contexts.length === 0 && <p className="text-sm text-gray-400">No current-value text extracted.</p>}
-              </div>
+              </ol>
             )}
           </div>
-
-          <div className="px-6 py-4">
-            <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wider mb-2">History</p>
-            <div className="space-y-2">
-              {fact.history_contexts.map((c, i) => {
-                const superseded = isSupersededSentence(c)
-                return (
-                  <div
-                    key={i}
-                    className={`text-sm px-3 py-2 rounded-lg border ${superseded ? 'bg-orange-50 border-orange-200 text-orange-800' : 'bg-gray-50 border-gray-100 text-gray-600'}`}
-                  >
-                    {superseded && <span className="pill pill-orange mr-2 align-middle">superseded_by</span>}
-                    {c}
-                  </div>
-                )
-              })}
-              {fact.history_contexts.length === 0 && <p className="text-sm text-gray-400">No history recorded.</p>}
-            </div>
-          </div>
         </div>
       )}
-
-      {/* --- Free-text memory Q&A, unchanged --- */}
-      <form
-        onSubmit={(e) => { e.preventDefault(); run(question) }}
-        className="card p-5 mb-6 flex gap-2"
-      >
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            placeholder={DEFAULT_QUESTION}
-            className="w-full pl-9 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
-          />
-        </div>
-        <button type="submit" className="btn-orange" disabled={loading}>
-          {loading ? 'Querying…' : 'Ask memory'}
-        </button>
-      </form>
-
-      {err && (
-        <div className="px-4 py-3 rounded-xl bg-orange-50 border border-orange-200 text-orange-700 text-sm flex items-center gap-2 mb-6">
-          <AlertTriangle className="w-4 h-4" />
-          {err}
-        </div>
-      )}
-
-      {result && (
-        <>
-          <div className="card p-5 mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <History className="w-4 h-4 text-orange-600" />
-              <h2 className="text-sm font-semibold text-gray-800">Fact graph</h2>
-            </div>
-            <EntityGraph graphContext={result.graph_context} />
-          </div>
-
-          <div className="card overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100">
-              <h2 className="text-sm font-semibold text-gray-800">Timeline</h2>
-            </div>
-            <div className="divide-y divide-gray-100">
-              {timeline.map((c, i) => {
-                let text = ''
-                try { text = JSON.parse(c.chunk_content || '{}').content?.text || '' } catch { /* leave blank */ }
-                const superseded = isSupersededSentence(text)
-                return (
-                  <div key={i} className="px-6 py-4 flex items-start gap-4">
-                    <div className="w-24 shrink-0 text-xs font-mono text-gray-400 pt-0.5">
-                      {c.source_upload_time ? new Date(c.source_upload_time).toLocaleTimeString() : ''}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm text-gray-800">{text || c.source_title}</p>
-                      {superseded && <span className="pill pill-orange mt-1 inline-block">superseded</span>}
-                    </div>
-                  </div>
-                )
-              })}
-              {timeline.length === 0 && (
-                <div className="py-16 text-center text-sm text-gray-400">No memory facts recorded yet.</div>
-              )}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
+    </ResourceGate>
   )
 }

@@ -6,94 +6,87 @@ import Chart from 'chart.js/auto'
 interface CostChartProps {
   data: number[]
   labels: string[]
+  /** Accessible summary of what the chart shows; pair it with a table alternative. */
+  ariaLabel: string
+  yTitle?: string
+  xTitle?: string
   color?: string
   height?: number
 }
 
-export function CostChart({ data, labels, color = '#6366f1', height = 250 }: CostChartProps) {
+const AXIS = '#6b6158', GRID = '#e6ded2', FONT = { size: 12, family: 'Inter, system-ui, sans-serif' }
+
+export function CostChart({ data, labels, ariaLabel, yTitle = 'USD', xTitle, color = '#ff6b00', height = 240 }: CostChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const chartRef = useRef<Chart | null>(null)
 
   useEffect(() => {
-    if (!canvasRef.current) return
-
-    const ctx = canvasRef.current.getContext('2d')
+    const ctx = canvasRef.current?.getContext('2d')
     if (!ctx) return
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const money = (v: number) => `$${v < 1 ? v.toFixed(4) : v.toFixed(2)}`
 
-    // Create a smooth gradient
-    const gradient = ctx.createLinearGradient(0, 0, 0, height)
-    gradient.addColorStop(0, `${color}40`) // 25% opacity
-    gradient.addColorStop(1, `${color}00`) // 0% opacity
-
-    if (chartRef.current) {
-      chartRef.current.destroy()
-    }
-
+    chartRef.current?.destroy()
     chartRef.current = new Chart(ctx, {
       type: 'line',
       data: {
-        labels: labels,
-        datasets: [
-          {
-            label: 'Cost',
-            data: data,
-            borderColor: color,
-            backgroundColor: gradient,
-            borderWidth: 2,
-            pointRadius: 0,
-            pointHoverRadius: 4,
-            fill: true,
-            tension: 0.4, // Smooth curves
-          }
-        ]
+        labels: [],
+        datasets: [{
+          label: yTitle,
+          data: [],
+          borderColor: color,
+          backgroundColor: `${color}1f`,
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          fill: true,
+          tension: 0, // straight segments: smoothing would draw values that were never sampled
+        }],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        interaction: {
-          intersect: false,
-          mode: 'index',
-        },
+        animation: still ? false : { duration: 300 },
+        interaction: { intersect: false, mode: 'index' },
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: '#111827',
-            titleColor: '#9ca3af',
-            bodyColor: '#f3f4f6',
-            borderColor: '#374151',
-            borderWidth: 1,
-            padding: 12,
-            displayColors: false,
-            callbacks: {
-              label: (context) => `$${Number(context.raw).toFixed(4)}`
-            }
-          }
+            backgroundColor: '#14100d', titleColor: '#e6ded2', bodyColor: '#ffffff',
+            padding: 10, displayColors: false,
+            callbacks: { label: c => money(Number(c.raw)) },
+          },
         },
         scales: {
           x: {
             grid: { display: false, drawBorder: false },
-            ticks: { color: '#6b7280', maxTicksLimit: 6 }
+            ticks: { color: AXIS, font: FONT, maxTicksLimit: 7, maxRotation: 0 },
+            title: xTitle ? { display: true, text: xTitle, color: AXIS, font: FONT } : undefined,
           },
           y: {
-            grid: { color: '#1f2937', drawBorder: false },
-            ticks: { 
-              color: '#6b7280',
-              callback: (value) => `$${value}` 
-            },
-            beginAtZero: true
-          }
-        }
-      }
+            beginAtZero: true,
+            grid: { color: GRID, drawBorder: false },
+            // One precision for every tick on the axis, chosen from its largest value.
+            ticks: { color: AXIS, font: FONT, maxTicksLimit: 5, callback: (v, _i, ticks) => `$${Number(v).toFixed(Math.max(...ticks.map(t => t.value)) >= 1 ? 2 : 4)}` },
+            title: { display: true, text: yTitle, color: AXIS, font: FONT },
+          },
+        },
+      },
     })
+    return () => { chartRef.current?.destroy(); chartRef.current = null }
+  }, [color, yTitle, xTitle])
 
-    return () => {
-      if (chartRef.current) chartRef.current.destroy()
-    }
-  }, [data, labels, color, height])
+  // New samples update the existing chart in place, so a poll does not redraw from scratch.
+  useEffect(() => {
+    const c = chartRef.current
+    if (!c) return
+    c.data.labels = labels
+    c.data.datasets[0].data = data
+    c.update()
+  }, [data, labels, color, yTitle, xTitle])
 
   return (
-    <div style={{ height: `${height}px`, width: '100%' }}>
-      <canvas ref={canvasRef} />
+    <div style={{ height, width: '100%', position: 'relative' }}>
+      <canvas ref={canvasRef} role="img" aria-label={ariaLabel} />
     </div>
   )
 }

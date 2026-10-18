@@ -144,15 +144,23 @@ body {
 }
 .btn-secondary:hover { border-color: var(--gray-300); background: var(--gray-50); }
 
+/* .btn-ghost, .stat-card, .btn-orange, .data-table and .pill* are used only by
+   application pages (never the landing page), so they live in Tailwind's
+   components layer: a page's utility classes can refine them instead of being
+   silently overridden. Colors here meet WCAG AA (measured). */
+@layer components {
 .btn-ghost {
   display: inline-flex; align-items: center; gap: 6px;
-  background: transparent; color: var(--gray-400);
-  padding: 8px 16px; border-radius: var(--radius-sm);
+  background: transparent; color: #5e544b;
+  padding: 8px 14px; border-radius: 8px;
   font-size: 0.8125rem; font-weight: 500;
   border: none; cursor: pointer;
   transition: color 0.15s ease, background 0.15s ease;
 }
-.btn-ghost:hover { color: var(--black); background: var(--gray-50); }
+.btn-ghost:hover { color: #14100d; background: #f1ede7; }
+.btn-ghost:focus-visible { outline: 2px solid #14100d; outline-offset: 2px; }
+.btn-ghost:disabled { opacity: .55; cursor: not-allowed; }
+}
 
 /* ─── Section layout ─── */
 .section-pad { padding: 120px 24px; }
@@ -407,49 +415,45 @@ body {
 .card { background: var(--white); border: 1px solid var(--gray-200); border-radius: var(--radius-lg); transition: box-shadow .25s var(--ease-spring), border-color .2s ease, transform .25s var(--ease-spring); }
 .card:hover { box-shadow: 0 4px 24px rgba(0,0,0,0.04); border-color: var(--gray-300); transform: translateY(-2px); }
 
-/* Stat card — the one hero surface per page, so it gets the landing page's
-   larger "framed panel" radius (--radius-2xl) instead of the standard --radius-lg
-   used by dense grid cards. */
-.stat-card { background: var(--white); border: 1px solid var(--gray-200); border-radius: var(--radius-2xl); padding: 20px 24px; transition: transform .25s var(--ease-spring); }
-.stat-card.orange { background: var(--orange); border-color: var(--orange); color: var(--white); }
-.stat-card:hover { transform: translateY(-2px); }
+@layer components {
+/* Stat card: a white metric surface. No hover lift: it is not clickable. */
+.stat-card { background: #fff; border: 1px solid #e6ded2; border-radius: 12px; padding: 18px 20px; }
+.stat-card.orange { background: #ff6b00; border-color: #ff6b00; color: #14100d; }
 
-/* Orange button (pill style) */
+/* Primary action: the brand orange with dark text (6.7:1; white on it is only 2.86:1). */
 .btn-orange {
-  background: var(--orange); color: var(--white); border-radius: 9999px;
-  padding: 8px 20px; font-size: 14px; font-weight: 600;
-  border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
-  transition: background .15s ease, transform .3s var(--ease-spring);
+  background: #ff6b00; color: #14100d; border-radius: 8px;
+  padding: 8px 16px; font-size: 14px; font-weight: 600; min-height: 36px;
+  border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  transition: background .15s ease;
 }
-.btn-orange:hover { background: var(--orange-dark); transform: translateY(-1px); }
-.btn-orange:active { transform: scale(0.97); }
+.btn-orange:hover { background: #f26500; }
+.btn-orange:focus-visible { outline: 2px solid #14100d; outline-offset: 2px; }
+.btn-orange:disabled { background: #e6ded2; color: #6b6158; cursor: not-allowed; }
 
 /* Data table */
-.data-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.data-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; color: #14100d; }
 .data-table th {
-  text-align: left; font-size: 11px; font-weight: 600;
-  text-transform: uppercase; letter-spacing: .05em;
-  color: var(--gray-400); padding: 10px 16px;
-  background: var(--gray-50); border-bottom: 1px solid var(--gray-200);
+  text-align: left; font-size: 12px; font-weight: 600;
+  color: #5e544b; padding: 10px 16px;
+  background: #faf7f2; border-bottom: 1px solid #e6ded2;
 }
-.data-table td {
-  padding: 12px 16px; font-size: 13px; color: var(--black);
-  border-bottom: 1px solid var(--gray-100);
-}
+.data-table td { padding: 12px 16px; border-bottom: 1px solid #efe9e0; }
 .data-table tr:last-child td { border-bottom: none; }
-.data-table tbody tr:hover td { background: var(--gray-50); }
+.data-table tbody tr:hover td { background: #faf7f2; }
 
-/* Pills (status badges) */
+/* Status pills (non-verdict states; verdicts use VerdictBadge). Text on tint >= 4.5:1. */
 .pill {
   display: inline-flex; align-items: center; gap: 5px;
-  padding: 3px 10px; border-radius: 9999px;
-  font-size: 12px; font-weight: 500;
+  padding: 2px 8px; border-radius: 6px;
+  font-size: 12px; font-weight: 500; line-height: 18px;
 }
-.pill-green  { background: #f0fdf4; color: #16a34a; }
-.pill-red    { background: #fff1f2; color: #dc2626; }
-.pill-orange { background: var(--orange-light); color: var(--orange); }
-.pill-gray   { background: var(--gray-50); color: var(--gray-500); }
+.pill-green  { background: #ecf7ef; color: #15803d; }
+.pill-red    { background: #fdecea; color: #b42318; }
+.pill-orange { background: #fdeee4; color: #a8380a; }
+.pill-gray   { background: #f1ede7; color: #5e544b; }
 .pill-dot    { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+}
 
 /* Progress track */
 .progress-track { height: 6px; background: var(--gray-100); border-radius: 9999px; overflow: hidden; }

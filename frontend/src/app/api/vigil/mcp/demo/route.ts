@@ -7,7 +7,7 @@ export async function POST() {
     {
       error: 'demo_removed',
       message: 'The simulated demo session has been removed. Connect real Claude via the Plugins page.',
-      connect_url: 'http://localhost:3000/plugins',
+      connect_url: '/plugins',
     },
     { status: 410 }
   )

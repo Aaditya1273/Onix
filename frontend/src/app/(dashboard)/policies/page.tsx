@@ -1,169 +1,269 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useId, useState } from 'react'
+import { Check, Plus } from 'lucide-react'
 import { PolicyGenerator } from '@/components/PolicyGenerator'
-import { Shield, Plus, Check } from 'lucide-react'
+import { useResource, type Resource } from '@/lib/useResource'
+import { describe, fetchJSON } from '@/lib/api'
+import { ResourceGate, StatePanel } from '@/components/app/ui'
 
-interface Policy {
+interface CostPolicy {
+  id?: string
   name: string
-  condition: { metric: string; threshold: number; operator: string }
+  condition?: { dimension?: string; metric?: string; threshold: number; operator: string }
   action: string
+  enabled?: boolean
 }
 
 interface IntentPolicy {
-  session_id?: string
-  declared_intent?: string
-  allowed_tools?: string[]
-  denied_tools?: string[]
-  budget_usd?: number
-  risk_tolerance?: string
-  network_access?: boolean
-  secret_access?: boolean
+  session_id: string
+  declared_intent: string
+  allowed_tools: string[] | null
+  denied_tools: string[] | null
+  denied_resources: string[] | null
+  budget_usd: number
+  risk_tolerance: string
+  network_access: boolean
+  secret_access: boolean
   created_at?: string
 }
 
+interface SessionPolicy { policy: IntentPolicy; is_default: boolean; enforcing: boolean }
+interface Sessions { sessions: { id: string; client_name?: string }[] | null }
+interface Models { configured: boolean }
+
+const DIMENSIONS: Record<string, string> = { run_cost: 'Cost of one run', daily_budget: 'Spend today' }
+const ACTIONS: Record<string, string> = {
+  KILL_RUN: 'Stop the run', ALERT: 'Alert only', CIRCUIT_BREAKER: 'Open the circuit breaker', TRIGGER_FALLBACK: 'Switch to a fallback',
+}
+const EMPTY = { name: '', dimension: 'run_cost', operator: '>', threshold: '5', action: 'KILL_RUN' }
+
+const list = (xs: string[] | null | undefined) => (xs && xs.length ? xs.join(', ') : null)
+
+function validate(f: typeof EMPTY) {
+  const e: Partial<Record<keyof typeof EMPTY, string>> = {}
+  if (!f.name.trim()) e.name = 'Give the policy a name.'
+  else if (f.name.trim().length > 80) e.name = 'Keep the name under 80 characters.'
+  const t = Number(f.threshold)
+  if (f.threshold.trim() === '' || !Number.isFinite(t)) e.threshold = 'Enter a dollar amount.'
+  else if (t <= 0) e.threshold = 'The threshold must be more than $0.'
+  else if (t > 1_000_000) e.threshold = 'The threshold must be $1,000,000 or less.'
+  return e
+}
+
 export default function PoliciesPage() {
-  const [policies, setPolicies]           = useState<Policy[]>([])
-  const [intentPolicies, setIntentPolicies] = useState<IntentPolicy[]>([])
-  const [loading, setLoading]             = useState(true)
-  const [adding, setAdding]               = useState(false)
-  const [form, setForm]                   = useState({ name: '', threshold: '5', action: 'KILL_RUN' })
+  const [session, setSession] = useState('default')
+  const sessions = useResource<Sessions>('/api/vigil/mcp/sessions', { intervalMs: 30000 })
+  const models = useResource<Models>('/api/v1/vigil/models')
+  const current = useResource<SessionPolicy>(`/api/v1/vigil/sessions/${encodeURIComponent(session)}/policy`)
+  const costs = useResource<CostPolicy[]>('/api/v1/vigil/cost/policies')
+  const digest = useResource<{ observe_mode: boolean }>('/api/v1/vigil/digest?days=1')
 
-  const load = async () => {
-    try {
-      // Cost policies
-      const r = await fetch('/api/v1/vigil/cost/policies')
-      if (r.ok) setPolicies(await r.json() ?? [])
-      // Active session intent policy
-      const r2 = await fetch('/api/v1/vigil/sessions/default/policy')
-      if (r2.ok) {
-        const d = await r2.json()
-        if (d?.policy) setIntentPolicies([d.policy])
-      }
-    } finally { setLoading(false) }
-  }
-
-  useEffect(() => { load() }, [])
-
-  const addPolicy = async () => {
-    if (!form.name) return
-    await fetch('/api/v1/vigil/cost/policies', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: form.name,
-        condition: { metric: 'total_cost', threshold: parseFloat(form.threshold), operator: 'gt' },
-        action: form.action,
-      }),
-    })
-    setAdding(false)
-    setForm({ name: '', threshold: '5', action: 'KILL_RUN' })
-    load()
-  }
+  const ids = ['default', ...(sessions.data?.sessions ?? []).map(s => s.id).filter(x => x !== 'default')]
+  const unavailable = models.data && !models.data.configured
+    ? 'Drafting needs an inference model, and none is configured on this server. Set a vendor API key on the server to enable it.'
+    : null
 
   return (
-    <div className="p-8 max-w-5xl mx-auto animate-fadeIn">
-      <div className="flex items-start justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Policies</h1>
-          <p className="text-sm text-gray-500 mt-1">Cost and governance enforcement policies applied to all agents.</p>
-        </div>
-        <button onClick={() => setAdding(true)} className="btn-orange">
-          <Plus className="w-4 h-4" /> New Policy
-        </button>
-      </div>
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fadeIn">
+      <h1>Policies</h1>
+      <p>Intent policies decide what one session may do. Cost policies are thresholds recorded on the server.</p>
 
-      <PolicyGenerator sessionId="default" onApplied={load} />
-
-      {adding && (
-        <div className="card p-5 mb-6 space-y-4">
-          <h3 className="text-sm font-semibold text-gray-800">New Cost Policy</h3>
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Policy Name</label>
-              <input value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))}
-                placeholder="e.g. Block at $10"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-400" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Cost Threshold ($)</label>
-              <input type="number" value={form.threshold} onChange={e => setForm(f => ({...f, threshold: e.target.value}))}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-400" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Action</label>
-              <select value={form.action} onChange={e => setForm(f => ({...f, action: e.target.value}))}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20">
-                {['KILL_RUN','ALERT','CIRCUIT_BREAKER','TRIGGER_FALLBACK'].map(a => <option key={a}>{a}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={addPolicy} className="btn-orange text-sm py-2 px-5">Save Policy</button>
-            <button onClick={() => setAdding(false)} className="btn-ghost text-sm py-2 px-4">Cancel</button>
-          </div>
+      {digest.data?.observe_mode && (
+        <div className="app-banner app-banner-warn mt-6" role="status">
+          Observe mode is on: for Claude Code hook calls VIGIL records what these policies would decide, but does not enforce them.
         </div>
       )}
 
-      <div className="card overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
-          <Shield className="w-4 h-4 text-orange-600" />
-          <h2 className="text-sm font-semibold text-gray-800">Active Policies</h2>
+      <section className="mt-8" aria-labelledby="intent-h">
+        <h2 id="intent-h" className="app-h2">Intent policy</h2>
+        <p className="app-sub mt-1 mb-4">Checked first on every tool call in the session, before the graph and the budget.</p>
+
+        <div className="app-field max-w-md mb-4">
+          <label htmlFor="sess">Session</label>
+          <select id="sess" className="app-input app-mono" value={session} onChange={e => setSession(e.target.value)}>
+            {ids.map(id => <option key={id} value={id}>{id}</option>)}
+          </select>
+          {sessions.status === 'error' && <span className="app-meta">Connected MCP sessions could not be listed: {describe(sessions.error)}</span>}
         </div>
-        {loading ? (
-          <div className="py-10 flex justify-center">
-            <div className="w-5 h-5 rounded-full border-2 border-orange-500 border-t-transparent animate-spin" />
-          </div>
-        ) : (intentPolicies.length === 0 && policies.length === 0) ? (
-          <div className="py-14 text-center">
-            <Shield className="w-8 h-8 text-gray-300 mx-auto mb-3" />
-            <p className="text-sm text-gray-500">No policies yet.</p>
-            <p className="text-xs text-gray-400 mt-1">Generate a policy above and click <b>Apply this policy</b>.</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-100">
-            {/* Intent policies applied via PolicyGenerator */}
-            {intentPolicies.map((p, i) => (
-              <div key={`intent-${i}`} className="px-6 py-4 flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="pill pill-green">
-                      <span className="pill-dot bg-green-500" />
-                      Enforcing
-                    </span>
-                    <span className="pill pill-gray text-xs">Intent Policy</span>
-                  </div>
-                  <p className="text-sm font-medium text-gray-800 truncate">{p.declared_intent ?? 'Applied policy'}</p>
-                  <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-500">
-                    {p.budget_usd != null && <span>Budget: <b className="text-orange-600">${p.budget_usd}</b></span>}
-                    {p.risk_tolerance && <span>Risk: <b>{p.risk_tolerance}</b></span>}
-                    {p.network_access === false && <span className="text-red-500">🚫 No network</span>}
-                    {p.secret_access === false && <span className="text-red-500">🚫 No secrets</span>}
-                    {p.denied_tools && p.denied_tools.length > 0 && <span>Denied tools: <b>{p.denied_tools.join(', ')}</b></span>}
-                  </div>
-                </div>
-                <Check className="w-4 h-4 text-green-500 shrink-0 mt-1" />
-              </div>
-            ))}
-            {/* Cost policies */}
-            {policies.length > 0 && (
-              <table className="data-table">
-                <thead><tr><th>Name</th><th>Metric</th><th>Threshold</th><th>Operator</th><th>Action</th></tr></thead>
-                <tbody>
-                  {policies.map((p, i) => (
-                    <tr key={i}>
-                      <td className="font-medium text-gray-800">{p.name}</td>
-                      <td className="font-mono text-xs text-gray-500">{p.condition?.metric}</td>
-                      <td className="font-mono text-xs text-orange-600">${p.condition?.threshold}</td>
-                      <td className="text-xs text-gray-500">{p.condition?.operator}</td>
-                      <td><span className="pill pill-orange">{p.action}</span></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
+
+        <div className="mb-4">
+          <ResourceGate r={current} loading="Loading this session's policy…" compact>
+            {p => p.policy.session_id === session ? <CurrentPolicy p={p} /> : <StatePanel kind="loading" title="Loading this session's policy…" compact />}
+          </ResourceGate>
+        </div>
+
+        <PolicyGenerator key={session} sessionId={session} onApplied={current.retry} unavailable={unavailable} />
+      </section>
+
+      <CostPolicies costs={costs} />
+    </div>
+  )
+}
+
+function CurrentPolicy({ p }: { p: SessionPolicy }) {
+  const x = p.policy
+  if (p.is_default) {
+    return (
+      <div className="app-card p-4">
+        <p className="app-h3">No declared intent</p>
+        <p className="app-sub mt-1">
+          This session runs under the permissive default: every tool is allowed, network and secrets included. Only the budget
+          {x.budget_usd > 0 ? <> of <strong>${x.budget_usd}</strong></> : null} and the graph checks apply.
+        </p>
+      </div>
+    )
+  }
+  const rows: [string, string | null][] = [
+    ['Intent', x.declared_intent || null],
+    ['Budget', x.budget_usd > 0 ? `$${x.budget_usd}` : null],
+    ['Allowed tools', list(x.allowed_tools) ?? 'any tool not denied'],
+    ['Denied tools', list(x.denied_tools)],
+    ['Denied resources', list(x.denied_resources)],
+    ['Network', x.network_access ? 'allowed' : 'denied'],
+    ['Secrets', x.secret_access ? 'allowed' : 'denied'],
+    ['When unsure', x.risk_tolerance],
+  ]
+  return (
+    <div className="app-card p-4">
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <p className="app-h3">Declared intent</p>
+        <span className="app-label">{p.enforcing ? 'Enforcing (reported by the server)' : 'Not enforcing'}</span>
+      </div>
+      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+        {rows.filter(([, v]) => v).map(([k, v]) => (
+          <div key={k} className="flex gap-2 min-w-0"><dt className="app-label shrink-0 w-32">{k}</dt><dd className="min-w-0 break-words">{v}</dd></div>
+        ))}
+      </dl>
+    </div>
+  )
+}
+
+function CostPolicies({ costs }: { costs: Resource<CostPolicy[]> }) {
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState(EMPTY)
+  const [errors, setErrors] = useState<ReturnType<typeof validate>>({})
+  const [saving, setSaving] = useState(false)
+  const [saveErr, setSaveErr] = useState<string | null>(null)
+  const [saved, setSaved] = useState<string | null>(null)
+  const id = useId()
+
+  const set = (k: keyof typeof EMPTY) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    setForm(f => ({ ...f, [k]: e.target.value })); setErrors(x => ({ ...x, [k]: undefined }))
+  }
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const v = validate(form)
+    setErrors(v); setSaveErr(null)
+    if (Object.keys(v).length) return
+    setSaving(true)
+    try {
+      await fetchJSON('/api/v1/vigil/cost/policies', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          condition: { dimension: form.dimension, operator: form.operator, threshold: Number(form.threshold) },
+          action: form.action,
+          enabled: true,
+        }),
+      })
+      setSaved(form.name.trim()); setForm(EMPTY); setOpen(false); costs.retry()
+    } catch (err) {
+      setSaveErr(`Not saved: ${describe(err)}`) // the form keeps what was typed
+    } finally { setSaving(false) }
+  }
+
+  const fieldErr = (k: keyof typeof EMPTY) => errors[k] && <span id={`${id}-${k}-e`} className="app-error-text">{errors[k]}</span>
+
+  return (
+    <section className="mt-10" aria-labelledby="cost-h">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 id="cost-h" className="app-h2">Cost policies</h2>
+          <p className="app-sub mt-1">
+            Stored in server memory until it restarts, and listed on Cost Firewall. This server does not yet evaluate them against tool calls:
+            spending is stopped by session budgets. There is no edit or delete on this server.
+          </p>
+        </div>
+        {!open && (
+          <button type="button" className="app-btn app-btn-secondary" onClick={() => { setOpen(true); setSaved(null) }}>
+            <Plus className="w-4 h-4" aria-hidden="true" />New cost policy
+          </button>
         )}
       </div>
-    </div>
+
+      <div aria-live="polite">
+        {saved && <div className="app-banner app-banner-info mt-4"><Check className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />Saved “{saved}”. The server accepted it.</div>}
+      </div>
+
+      {open && (
+        <form className="app-card p-4 sm:p-5 mt-4" onSubmit={save} noValidate aria-labelledby={`${id}-h`}>
+          <h3 id={`${id}-h`} className="app-h3 mb-4">New cost policy</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="app-field">
+              <label htmlFor={`${id}-name`}>Name</label>
+              <input id={`${id}-name`} className="app-input" value={form.name} onChange={set('name')} placeholder="Stop runs over $10"
+                aria-invalid={!!errors.name} aria-describedby={errors.name ? `${id}-name-e` : undefined} />
+              {fieldErr('name')}
+            </div>
+            <div className="app-field">
+              <label htmlFor={`${id}-dim`}>Measure</label>
+              <select id={`${id}-dim`} className="app-input" value={form.dimension} onChange={set('dimension')}>
+                {Object.entries(DIMENSIONS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </select>
+            </div>
+            <div className="app-field">
+              <label htmlFor={`${id}-thr`}>Threshold (USD)</label>
+              <div className="flex gap-2">
+                <select aria-label="Comparison" className="app-input shrink-0" style={{ width: 72 }} value={form.operator} onChange={set('operator')}>
+                  <option value=">">&gt;</option><option value=">=">≥</option>
+                </select>
+                <input id={`${id}-thr`} className="app-input min-w-0" type="number" inputMode="decimal" min="0.01" step="0.01" value={form.threshold}
+                  onChange={set('threshold')} aria-invalid={!!errors.threshold} aria-describedby={errors.threshold ? `${id}-threshold-e` : undefined} />
+              </div>
+              {fieldErr('threshold')}
+            </div>
+            <div className="app-field">
+              <label htmlFor={`${id}-act`}>Action</label>
+              <select id={`${id}-act`} className="app-input" value={form.action} onChange={set('action')}>
+                {Object.entries(ACTIONS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </select>
+            </div>
+          </div>
+          {saveErr && <div className="app-banner app-banner-error mt-4" role="alert">{saveErr}</div>}
+          <div className="flex gap-2 mt-4">
+            <button type="submit" className="app-btn app-btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save policy'}</button>
+            <button type="button" className="app-btn app-btn-ghost" disabled={saving} onClick={() => { setOpen(false); setErrors({}); setSaveErr(null) }}>Cancel</button>
+          </div>
+        </form>
+      )}
+
+      <div className="mt-4">
+        <ResourceGate r={costs} loading="Loading cost policies…" isEmpty={d => !d.length}
+          empty={<StatePanel kind="empty" title="No cost policies">None have been saved since the server started.</StatePanel>}>
+          {d => (
+            <div className="app-table-wrap">
+              <table className="data-table">
+                <thead><tr><th scope="col">Name</th><th scope="col">Condition</th><th scope="col">Action</th><th scope="col">State</th></tr></thead>
+                <tbody>
+                  {d.map((p, i) => {
+                    const dim = p.condition?.dimension || p.condition?.metric || ''
+                    return (
+                      <tr key={p.id || `${p.name}-${i}`}>
+                        <td className="font-medium">{p.name}</td>
+                        <td className="app-mono">{DIMENSIONS[dim] ?? (dim || '—')} {p.condition?.operator} ${p.condition?.threshold}</td>
+                        <td>{ACTIONS[p.action] ?? p.action}</td>
+                        <td className="text-[#5e544b]">{p.enabled ? 'Recorded, not evaluated' : 'Disabled'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </ResourceGate>
+      </div>
+    </section>
   )
 }

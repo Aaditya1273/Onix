@@ -1,107 +1,89 @@
 'use client'
 
-import { useEffect, useState, useSyncExternalStore } from 'react'
-import { Shield, Database, CheckCircle, AlertTriangle, Copy, Check } from 'lucide-react'
+import { useSyncExternalStore } from 'react'
+import { useResource, type Resource } from '@/lib/useResource'
+import { describe } from '@/lib/api'
+import { CopyButton } from '@/components/app/ui'
 
-function CopyBtn({ text }: { text: string }) {
-  const [c, setC] = useState(false)
-  return (
-    <button onClick={() => { navigator.clipboard.writeText(text); setC(true); setTimeout(() => setC(false), 1500) }}
-      className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600">
-      {c ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
-    </button>
-  )
-}
-
-type GraphState = 'loading' | 'connected' | 'unconfigured' | 'offline'
+const HOSTED = 'https://vigil-server.onrender.com'
+const MCP_URL = `${HOSTED}/api/v1/mcp`
+const CLAUDE_CODE_CMD = `claude mcp add --transport sse vigil ${MCP_URL}`
 
 const noSubscribe = () => () => {}
 
+type Row = { label: string; value: string; detail: string; tone?: 'warn' | 'error' }
+
+function row<T>(label: string, r: Resource<T>, ok: (d: T) => Omit<Row, 'label'>, onError?: (r: Resource<T>) => Omit<Row, 'label'> | null): Row {
+  if (r.status === 'loading') return { label, value: 'Checking…', detail: '' }
+  if (r.status === 'error' || !r.data) return { label, ...(onError?.(r) ?? { value: 'Unknown', detail: describe(r.error), tone: 'error' as const }) }
+  return { label, ...ok(r.data) }
+}
+
 export default function SettingsPage() {
-  const [graph, setGraph] = useState<GraphState>('loading')
-  const [observe, setObserve] = useState(false)
+  const digest = useResource<{ observe_mode: boolean }>('/api/v1/vigil/digest?days=1', { intervalMs: 60000 })
+  const models = useResource<{ configured: boolean; provider: string }>('/api/v1/vigil/models', { intervalMs: 60000 })
+  const stats = useResource<{ budget: number }>('/api/vigil/stats', { intervalMs: 60000 })
   // Read after mount: the server has no window, and rendering it inline makes
   // the server and browser HTML disagree (a hydration error).
-  const origin = useSyncExternalStore(noSubscribe, () => window.location.origin, () => '—')
+  const origin = useSyncExternalStore(noSubscribe, () => window.location.origin, () => '')
 
-  const BACKEND = process.env.NEXT_PUBLIC_VIGIL_BACKEND_URL || 'https://vigil-server.onrender.com'
+  const rows: Row[] = [
+    row('Graph memory (FalkorDB)', digest,
+      () => ({ value: 'Connected', detail: 'Decisions, earned trust and threat intel persist across restarts.' }),
+      r => r.error?.kind === 'unavailable'
+        ? { value: 'Not configured', detail: 'VIGIL_FALKORDB_URL is not set on the server. Intent and cost checks still run, but nothing is remembered across sessions.', tone: 'warn' }
+        : null),
+    row('Claude Code hook', digest, d => d.observe_mode
+      ? { value: 'Observe mode', detail: 'Hook calls are decided and recorded, but not enforced (VIGIL_MODE=observe).', tone: 'warn' }
+      : { value: 'Enforcing', detail: 'Hook calls get the verdict VIGIL decides.' },
+      r => r.error?.kind === 'unavailable' ? { value: 'Unknown', detail: 'The mode is reported with the graph digest, which needs graph memory.' } : null),
+    row('Inference', models, d => d.configured
+      ? { value: 'Configured', detail: `Provider: ${d.provider}. Used only when the deterministic checks are uncertain.` }
+      : { value: 'None', detail: 'Every call is decided without a model. This is a supported setup.' }),
+    row('Server budget limit', stats, d => d.budget > 0
+      ? { value: `$${d.budget.toLocaleString()}`, detail: 'The default budget for a session that did not set one.' }
+      : { value: 'No budget limit set', detail: 'Sessions are not capped by a server-wide budget.', tone: 'warn' }),
+  ]
 
-  useEffect(() => {
-    // The digest answers from FalkorDB, and is a 503 when no graph is configured.
-    fetch(`${BACKEND}/api/v1/vigil/digest?days=1`)
-      .then(async r => {
-        if (r.status === 503) { setGraph('unconfigured'); return }
-        if (!r.ok) { setGraph('offline'); return }
-        const body = await r.json()
-        setObserve(!!body.observe_mode)
-        setGraph('connected')
-      })
-      .catch(() => setGraph('offline'))
-  }, [BACKEND])
+  const endpoints = [
+    { label: 'MCP endpoint (hosted, SSE)', value: MCP_URL },
+    { label: 'Claude Code command', value: CLAUDE_CODE_CMD },
+    { label: 'OAuth discovery (hosted)', value: `${HOSTED}/.well-known/oauth-authorization-server` },
+    ...(origin ? [{ label: 'This dashboard', value: origin }] : []),
+  ]
 
   return (
-    <div className="p-8 max-w-4xl mx-auto animate-fadeIn">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-        <p className="text-sm text-gray-500 mt-1">VIGIL configuration and graph memory status.</p>
-      </div>
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fadeIn">
+      <h1>Settings</h1>
+      <p>How this server is configured, as it reports itself. These values are set on the server; nothing on this page changes them.</p>
 
-      <div className="card p-6 mb-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center">
-            <Database className="w-5 h-5 text-orange-600" />
-          </div>
-          <h2 className="text-sm font-semibold text-gray-900">FalkorDB graph memory</h2>
-          {graph === 'connected' && (
-            <span className={`pill ml-auto ${observe ? 'pill-orange' : 'pill-green'}`}>{observe ? 'Observe mode' : 'Enforcing'}</span>
-          )}
-        </div>
-        {graph === 'loading' && <p className="text-sm text-gray-400">Checking…</p>}
-        {graph === 'connected' && (
-          <p className="flex items-center gap-2 text-sm text-green-700">
-            <CheckCircle className="w-4 h-4" /> Connected. Decisions, earned trust and threat intel persist across restarts.
-          </p>
-        )}
-        {graph === 'unconfigured' && (
-          <div className="px-4 py-3 rounded-xl bg-orange-50 border border-orange-200 text-sm text-orange-700">
-            No graph configured. Set <code className="font-mono text-xs bg-white px-1 rounded border">VIGIL_FALKORDB_URL</code> on
-            the server (<code className="font-mono text-xs bg-white px-1 rounded border">docker compose up</code> runs one locally).
-            Without it the firewall still enforces intent and cost, but has no memory.
-          </div>
-        )}
-        {graph === 'offline' && (
-          <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-600">
-            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-            Backend offline — start the Go server on :8080
-          </div>
-        )}
-      </div>
-
-      {/* VIGIL server info */}
-      <div className="card p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center">
-            <Shield className="w-5 h-5 text-orange-600" />
-          </div>
-          <h2 className="text-sm font-semibold text-gray-900">VIGIL Backend</h2>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { l: 'Backend URL',     v: BACKEND },
-            { l: 'Dashboard URL',   v: origin },
-            { l: 'MCP Endpoint',    v: `${BACKEND}/api/v1/mcp` },
-            { l: 'OAuth Discovery', v: `${BACKEND}/.well-known/oauth-authorization-server` },
-          ].map(s => (
-            <div key={s.l} className="bg-gray-50 rounded-xl px-4 py-3 flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-500">{s.l}</p>
-                <p className="text-xs font-mono text-gray-800 mt-0.5 truncate max-w-[220px]">{s.v}</p>
-              </div>
-              <CopyBtn text={s.v} />
+      <section className="mt-8" aria-labelledby="st-h">
+        <h2 id="st-h" className="app-h2">Server status</h2>
+        <p className="app-sub mt-1 mb-4">Checked every minute.</p>
+        <dl className="app-card divide-y divide-[#efe9e0]">
+          {rows.map(r => (
+            <div key={r.label} className="grid grid-cols-1 sm:grid-cols-[220px_180px_1fr] gap-1 sm:gap-4 px-4 py-3">
+              <dt className="app-label sm:pt-0.5">{r.label}</dt>
+              <dd className={`font-semibold ${r.tone === 'error' ? 'text-[#b42318]' : r.tone === 'warn' ? 'text-[#7a4f0f]' : ''}`}>{r.value}</dd>
+              <dd className="app-sub">{r.detail}</dd>
             </div>
           ))}
-        </div>
-      </div>
+        </dl>
+      </section>
+
+      <section className="mt-8" aria-labelledby="ep-h">
+        <h2 id="ep-h" className="app-h2">Endpoints</h2>
+        <p className="app-sub mt-1 mb-4">What to give an MCP client. Set-up for each client is on Plugins.</p>
+        <ul className="app-card divide-y divide-[#efe9e0]">
+          {endpoints.map(e => (
+            <li key={e.label} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-4 py-3">
+              <span className="app-label sm:w-[220px] shrink-0">{e.label}</span>
+              <code className="app-mono flex-1 min-w-0 break-all select-all">{e.value}</code>
+              <CopyButton text={e.value} label={`Copy ${e.label}`} className="self-start sm:self-auto" />
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
   )
 }

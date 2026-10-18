@@ -1,12 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Scissors, AlertTriangle, Eye, HelpCircle } from 'lucide-react'
+import { useRef, useState } from 'react'
 import { EntityGraph, type GraphContext } from '@/components/EntityGraph'
+import { useResource, type Resource } from '@/lib/useResource'
+import { describe } from '@/lib/api'
+import { stageLabel, verdictOf, VERDICT } from '@/lib/verdict'
+import { CopyButton, ResourceGate, StatePanel, VerdictBadge } from '@/components/app/ui'
 
 interface DecisionRow {
   id: string
-  ts: number
+  ts: number // unix ns
   agent: string
   session: string
   tool: string
@@ -17,203 +20,209 @@ interface DecisionRow {
   cut_cost: number
   hidden_effect: boolean
 }
+interface EffectRef { kind: string; name: string; hidden?: boolean }
+interface Effects { predicted: EffectRef[]; observed: EffectRef[]; hidden_effect: boolean }
+interface WhyAnswer { flips: boolean; edge?: string; cause_decision?: string; sentence: string; method: string }
+interface FlowEdge { from: string; from_label?: string; kind: string; to: string; to_label?: string; cap: number; cut: boolean }
+interface Digest { observe_mode: boolean; digest: { chain_links: number; chain_broken: number } }
 
-interface EffectRef {
-  kind: string
-  name: string
-  hidden?: boolean
-}
-
-interface WhyAnswer {
-  flips: boolean
-  edge?: string
-  cause_decision?: string
-  sentence: string
-  method: string
-}
-
-interface Effects {
-  predicted: EffectRef[]
-  observed: EffectRef[]
-  hidden_effect: boolean
-}
-
-interface FlowEdge {
-  from: string
-  kind: string
-  to: string
-  cap: number
-  cut: boolean
-}
-
-const VERDICT_PILL: Record<string, string> = {
-  BLOCK: 'pill-red',
-  PAUSE: 'pill-orange',
-  ALLOW: 'pill-green',
-}
-
-function fmtCap(c: number) {
-  return c >= 1_000_000 ? '∞' : String(c)
-}
+const POLL_MS = 10_000
+const fmtCap = (c: number) => (c >= 1_000_000 ? '∞' : String(c))
+const when = (ns: number) => new Date(ns / 1e6).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })
+// The cut, in plain words: "terminal" is the edge from the call to its effect.
+const cutWords = (e: string) => (e === 'terminal' ? 'the call itself (blocked)' : e.startsWith('arg:') ? `argument “${e.slice(4)}” (removed)` : e)
 
 export default function DecisionsPage() {
-  const [rows, setRows] = useState<DecisionRow[]>([])
-  const [err, setErr] = useState('')
+  const list = useResource<{ decisions: DecisionRow[] | null }>('/api/v1/vigil/graph/decisions?limit=40', { intervalMs: POLL_MS })
+  const digest = useResource<Digest>('/api/v1/vigil/digest?days=7', { intervalMs: 30_000 })
+  // The selected row is kept as an object, so it survives refreshes, and a
+  // decision that scrolls out of the newest 40 stays open.
   const [sel, setSel] = useState<DecisionRow | null>(null)
-  const [flow, setFlow] = useState<{ edges: FlowEdge[]; graph_context: GraphContext } | null>(null)
-  const [effects, setEffects] = useState<Effects | null>(null)
-  const [why, setWhy] = useState<WhyAnswer | null>(null)
+  const detailRef = useRef<HTMLDivElement>(null)
 
-  const askWhy = async (d: DecisionRow) => {
-    try {
-      const r = await fetch(`/api/v1/vigil/decisions/${encodeURIComponent(d.id)}/why`, { cache: 'no-store' })
-      if (r.ok) setWhy(await r.json())
-    } catch { /* leave the panel without an answer */ }
-  }
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const r = await fetch('/api/v1/vigil/graph/decisions?limit=40', { cache: 'no-store' })
-        if (!r.ok) { setErr(r.status === 503 ? 'FalkorDB is not configured on the server.' : 'Control plane unreachable.'); return }
-        const body = await r.json()
-        setRows(body.decisions ?? []); setErr('')
-      } catch { setErr('Control plane unreachable.') }
-    }
-    load()
-    const t = setInterval(load, 10000)
-    return () => clearInterval(t)
-  }, [])
-
-  const open = async (d: DecisionRow) => {
+  const select = (d: DecisionRow) => {
     setSel(d)
-    setFlow(null)
-    setEffects(null)
-    setWhy(null)
-    const id = encodeURIComponent(d.id)
-    try {
-      const [f, e] = await Promise.all([
-        fetch(`/api/v1/vigil/decisions/${id}/flow`, { cache: 'no-store' }),
-        fetch(`/api/v1/vigil/calls/${id}/effects`, { cache: 'no-store' }),
-      ])
-      if (f.ok) setFlow(await f.json())
-      if (e.ok) setEffects(await e.json())
-    } catch { /* the panels say there is nothing */ }
+    requestAnimationFrame(() => detailRef.current?.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }))
   }
 
   return (
-    <div className="p-8 max-w-6xl mx-auto animate-fadeIn">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Decisions</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Every call VIGIL stopped, paused or rewrote, straight from the graph. Pick one to see the influence network
-          FalkorDB&apos;s max-flow ran over, and the edges its minimum cut severed.
-        </p>
-      </div>
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fadeIn">
+      <h1>Decisions</h1>
+      <p>Every call VIGIL blocked, paused or rewrote, read from the graph. Select one to see the path of influence that decided it and the edge the min cut severed.</p>
 
-      {err && (
-        <div className="px-4 py-3 rounded-xl bg-orange-50 border border-orange-200 text-orange-700 text-sm flex items-center gap-2 mb-6">
-          <AlertTriangle className="w-4 h-4" /> {err}
+      <ChainStatus r={digest} />
+
+      <section aria-labelledby="dec-list" className="mt-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-3">
+          <h2 id="dec-list" className="app-h2">Stopped and rewritten calls</h2>
+          {list.loadedAt && <span className="app-meta">Newest 40 · checked {new Date(list.loadedAt).toLocaleTimeString()} · refreshes every {POLL_MS / 1000} s</span>}
         </div>
-      )}
-
-      <div className="card overflow-hidden mb-6">
-        <div className="overflow-x-auto">
-          <table className="data-table">
-            <thead>
-              <tr><th>When</th><th>Agent</th><th>Tool</th><th>Verdict</th><th>Stage</th><th>Cut</th></tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 && (
-                <tr><td colSpan={6} className="text-center text-xs text-gray-400 py-8">Nothing stopped or rewritten yet.</td></tr>
-              )}
-              {rows.map(d => (
-                <tr key={d.id} onClick={() => open(d)} className={`cursor-pointer ${sel?.id === d.id ? 'bg-orange-50' : ''}`}>
-                  <td className="font-mono text-xs">{new Date(d.ts / 1e6).toLocaleTimeString()}</td>
-                  <td className="font-mono text-xs">{d.agent}</td>
-                  <td className="font-mono text-xs">{d.tool}</td>
-                  <td>
-                    <span className={`pill ${VERDICT_PILL[d.verdict] ?? 'pill-gray'}`}>{d.verdict}</span>
-                    {d.hidden_effect && <span className="pill pill-red ml-1">hidden effect</span>}
-                  </td>
-                  <td className="font-mono text-xs">{d.stage}</td>
-                  <td className="font-mono text-xs">{d.cut_edges.length ? `${d.cut_edges.join(', ')} · cost ${d.cut_cost}` : '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {sel && (
-        <div className="card p-6">
-          <div className="flex items-center gap-2 mb-2">
-            <Scissors className="w-4 h-4 text-orange-600" />
-            <h2 className="text-sm font-semibold text-gray-800">{sel.tool} · {sel.verdict}</h2>
-            <span className="font-mono text-[11px] text-gray-400 ml-auto">{sel.id}</span>
-          </div>
-          <p className="text-sm text-gray-600 mb-4">{sel.reason}</p>
-
-          {(sel.verdict !== 'ALLOW' || sel.cut_edges.length > 0) && (
-            <div className="mb-4">
-              <button onClick={() => askWhy(sel)} className="btn-orange inline-flex items-center gap-2 text-sm">
-                <HelpCircle className="w-4 h-4" /> Why?
-              </button>
-              {why && (
-                <div className={`mt-3 px-4 py-3 rounded-xl border text-sm ${why.flips ? 'bg-orange-50 border-orange-200 text-gray-800' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
-                  <p>{why.sentence}</p>
-                  {why.edge && <p className="font-mono text-xs text-gray-500 mt-2">counterfactual edge: {why.edge}</p>}
-                </div>
-              )}
-            </div>
-          )}
-
-          {flow && flow.edges.length > 0 ? (
-            <>
-              <EntityGraph graphContext={flow.graph_context} height={380} />
-              <table className="data-table mt-4">
-                <thead><tr><th>From</th><th>Edge</th><th>To</th><th>Capacity</th><th></th></tr></thead>
+        <ResourceGate r={list} loading="Reading decisions from the graph…"
+          isEmpty={d => !d.decisions?.length}
+          empty={<StatePanel kind="empty" title="No call has been blocked, paused or rewritten yet">Allowed calls are not listed here. When VIGIL stops or rewrites a call, it appears within {POLL_MS / 1000} seconds.</StatePanel>}>
+          {d => (
+            <div className="app-table-wrap max-h-[440px] overflow-y-auto">
+              <table className="data-table">
+                <caption className="sr-only">Decisions, newest first. Select a row to open its evidence below.</caption>
+                <thead className="sticky top-0 z-[1] bg-white">
+                  <tr><th scope="col">Verdict</th><th scope="col">Tool</th><th scope="col">Why</th><th scope="col">When</th><th scope="col">Agent</th></tr>
+                </thead>
                 <tbody>
-                  {flow.edges.map((e, i) => (
-                    <tr key={i} className={e.cut ? 'bg-red-50' : ''}>
-                      <td className="font-mono text-xs">{e.from}</td>
-                      <td className="font-mono text-xs">{e.kind}</td>
-                      <td className="font-mono text-xs">{e.to}</td>
-                      <td className="font-mono text-xs">{fmtCap(e.cap)}</td>
-                      <td>{e.cut && <span className="pill pill-red">✂ cut</span>}</td>
-                    </tr>
-                  ))}
+                  {d.decisions!.map(row => {
+                    const v = verdictOf(row.verdict, row.stage)
+                    const on = sel?.id === row.id
+                    return (
+                      <tr key={row.id} className="app-row-button" tabIndex={0} aria-selected={on}
+                        onClick={() => select(row)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(row) } }}>
+                        <td className="whitespace-nowrap">
+                          <span className="inline-flex flex-wrap gap-1"><VerdictBadge v={v} />{row.hidden_effect && <VerdictBadge v="critical" title="The call did something its prediction did not cover" />}</span>
+                        </td>
+                        <td className="app-mono">{row.tool}</td>
+                        <td className="text-[13.5px] min-w-[180px]">{stageLabel(row.stage)}{row.hidden_effect && <span className="block app-meta">and a hidden side effect</span>}</td>
+                        <td className="whitespace-nowrap app-meta">{when(row.ts)}</td>
+                        <td className="app-mono text-[#5e544b]">{row.agent || '—'}</td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
-            </>
-          ) : (
-            <p className="text-xs text-gray-400">No influence network: no tainted value reached this call, so no cut was computed.</p>
-          )}
-
-          {effects && (effects.predicted.length > 0 || effects.observed.length > 0) && (
-            <div className="mt-6">
-              <h3 className="text-xs font-semibold text-gray-800 uppercase tracking-wide mb-3 flex items-center gap-2">
-                <Eye className="w-4 h-4 text-orange-600" /> Shadow execution: predicted vs observed
-              </h3>
-              <div className="grid grid-cols-2 gap-4">
-                {(['predicted', 'observed'] as const).map(side => (
-                  <div key={side} className="rounded-xl border border-gray-100 p-4">
-                    <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wider mb-2">{side}</p>
-                    {effects[side].length === 0 && <p className="text-xs text-gray-400">nothing reported</p>}
-                    <ul className="space-y-1">
-                      {effects[side].map((e, i) => (
-                        <li key={i} className={`font-mono text-xs px-2 py-1 rounded ${e.hidden ? 'bg-red-50 text-red-700' : 'text-gray-700'}`}>
-                          {e.kind}: {e.name}{e.hidden && '  ← hidden side effect'}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
             </div>
           )}
+        </ResourceGate>
+      </section>
+
+      <div ref={detailRef} className="mt-6 scroll-mt-4">
+        {sel ? <Detail key={sel.id} d={sel} observe={!!digest.data?.observe_mode} onClose={() => setSel(null)} /> : list.status === 'ready' && list.data?.decisions?.length ? (
+          <p className="app-meta">Select a decision above to see its evidence.</p>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function ChainStatus({ r }: { r: Resource<Digest> }) {
+  if (r.status === 'loading') return <p className="app-meta mt-4" role="status">Checking the decision chain…</p>
+  if (!r.data) return <div className="app-banner app-banner-warn mt-4" role="status"><span>Decision-chain integrity could not be checked: {describe(r.error)}</span></div>
+  const { chain_links: links, chain_broken: broken } = r.data.digest
+  return (
+    <div className="mt-4 space-y-2">
+      {broken > 0 ? (
+        <div className="app-banner app-banner-error items-center" role="alert">
+          <VerdictBadge v="critical" solid />
+          <span><strong className="font-semibold">{broken} of {links} links in the decision chain do not match the hash they name.</strong> The recorded history may have been altered; do not rely on it until it is checked.</span>
         </div>
+      ) : (
+        <p className="app-meta">Decision chain: {links} links checked in the graph, none broken{r.stale ? ` (as of ${r.loadedAt ? new Date(r.loadedAt).toLocaleTimeString() : 'earlier'}; the latest check failed)` : ''}.</p>
+      )}
+      {r.data.observe_mode && (
+        <div className="app-banner app-banner-info" role="status"><span>VIGIL is in observe mode: these verdicts were recorded but not enforced, so the calls ran.</span></div>
       )}
     </div>
+  )
+}
+
+function Detail({ d, observe, onClose }: { d: DecisionRow; observe: boolean; onClose: () => void }) {
+  const id = encodeURIComponent(d.id)
+  const flow = useResource<{ edges: FlowEdge[] | null; graph_context: GraphContext }>(`/api/v1/vigil/decisions/${id}/flow`)
+  const why = useResource<WhyAnswer>(`/api/v1/vigil/decisions/${id}/why`)
+  const effects = useResource<Effects>(`/api/v1/vigil/calls/${id}/effects`)
+  const v = verdictOf(d.verdict, d.stage)
+
+  return (
+    <section aria-labelledby="dec-detail" className="app-panel p-4 sm:p-6">
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 id="dec-detail" className="app-h2 app-mono break-all" style={{ fontSize: 19 }}>{d.tool}</h2>
+            <VerdictBadge v={v} solid />
+            {d.hidden_effect && <VerdictBadge v="critical" />}
+          </div>
+          <p className="app-sub mt-1">{stageLabel(d.stage)} · {observe && v !== 'allowed' ? 'Recorded in observe mode, not enforced: the call ran.' : VERDICT[v].meaning}</p>
+          <p className="app-meta mt-1">{when(d.ts)} · agent <span className="app-mono">{d.agent || '—'}</span> · session <span className="app-mono">{d.session || '—'}</span></p>
+        </div>
+        <div className="flex items-center gap-2">
+          <CopyButton text={d.id} label="Copy decision ID" />
+          <button type="button" className="app-btn app-btn-ghost app-btn-sm" onClick={onClose}>Close</button>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-[#e6ded2] bg-[#faf7f2] p-4">
+        <span className="app-label">Reason recorded with the decision</span>
+        <p className="mt-1 text-[15px] leading-[22px]">{d.reason || '—'}</p>
+        {d.cut_edges.length > 0 && (
+          <p className="mt-2 text-[14px]"><strong className="font-semibold" style={{ color: '#b42318' }}>✂ The min cut severed</strong> {d.cut_edges.map(cutWords).join(', ')} <span className="app-meta">(cost {d.cut_cost})</span></p>
+        )}
+        <div className="mt-3 pt-3 border-t border-[#e6ded2]">
+          <span className="app-label">The one edge that decided it</span>
+          {why.status === 'loading' ? <p className="app-meta mt-1" role="status">Replaying the decision without each edge…</p>
+            : !why.data ? <p className="app-meta mt-1">{why.error?.kind === 'not_found' ? 'The server has no counterfactual for this decision.' : `No counterfactual could be loaded: ${describe(why.error)}`}</p>
+            : (
+              <>
+                <p className="mt-1 text-[15px] leading-[22px]">{why.data.sentence}</p>
+                {why.data.edge && <p className="app-mono mt-1 break-all">{why.data.flips ? 'Without this edge the call would have run: ' : 'Edge examined: '}{why.data.edge}</p>}
+                <p className="app-meta mt-1">Method: {why.data.method}{why.data.cause_decision ? <> · earlier decision that allowed it: <span className="app-mono">{why.data.cause_decision}</span></> : null}</p>
+              </>
+            )}
+        </div>
+      </div>
+
+      <h3 className="app-h3" style={{ marginTop: 28 }}>Path of influence</h3>
+      <p className="app-sub mb-3">From the earlier reads that introduced a tainted value, through the argument that carries it, to this call. The red edge is the one FalkorDB&apos;s min cut severed.</p>
+      <ResourceGate r={flow} loading="Loading the influence network…" compact
+        isEmpty={f => !f.edges?.length}
+        empty={<StatePanel kind="empty" compact title="No influence network for this decision">No tainted value reached this call, so no cut was computed. It was decided by {stageLabel(d.stage).toLowerCase()} instead.</StatePanel>}>
+        {f => (
+          <>
+            <EntityGraph graphContext={f.graph_context} label={`Influence network of ${d.tool}`} layout="dag" verdict={v} table={false} height={400} />
+            <details className="mt-3">
+              <summary className="cursor-pointer app-label w-fit">The network as a table ({f.edges!.length} edges, with capacities)</summary>
+              <div className="app-table-wrap mt-2">
+                <table className="data-table">
+                  <thead><tr><th scope="col">From</th><th scope="col">Edge</th><th scope="col">To</th><th scope="col">Cost to cut</th><th scope="col">Cut</th></tr></thead>
+                  <tbody>
+                    {[...f.edges!].sort((a, b) => Number(b.cut) - Number(a.cut)).map((e, i) => (
+                      <tr key={i}>
+                        <td className="app-mono break-all">{e.from}</td>
+                        <td className="app-mono">{e.kind}</td>
+                        <td className="app-mono break-all">{e.to}</td>
+                        <td className="app-mono">{fmtCap(e.cap)}</td>
+                        <td>{e.cut ? <strong style={{ color: '#b42318' }}>✂ Cut</strong> : <span className="app-meta">—</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </>
+        )}
+      </ResourceGate>
+
+      <h3 className="app-h3" style={{ marginTop: 28 }}>Shadow execution: predicted and observed effects</h3>
+      <p className="app-sub mb-3">What the call was expected to touch, and what it actually touched. An effect nobody predicted is a hidden side effect.</p>
+      <ResourceGate r={effects} loading="Loading effects…" compact
+        isEmpty={e => !e.predicted?.length && !e.observed?.length}
+        empty={<StatePanel kind="empty" compact title="No effects recorded">Nothing was predicted or observed for this call.</StatePanel>}>
+        {e => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {(['predicted', 'observed'] as const).map(side => (
+              <div key={side} className="app-card p-4">
+                <h4 className="app-label">{side === 'predicted' ? 'Predicted' : 'Observed'}</h4>
+                {!e[side]?.length ? <p className="app-meta mt-1">Nothing reported.</p> : (
+                  <ul className="mt-2 space-y-1.5">
+                    {e[side].map((x, i) => (
+                      <li key={i} className="flex flex-wrap items-center gap-2 text-[13.5px]">
+                        <span className="app-mono break-all">{x.kind}: {x.name}</span>
+                        {x.hidden && <VerdictBadge v="critical" title="Hidden side effect: nobody predicted it" />}
+                        {x.hidden && <span className="app-meta">not predicted</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </ResourceGate>
+    </section>
   )
 }

@@ -1,24 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { api } from '@/lib/backend'
+import { proxy } from '@/lib/proxy'
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string; action: string }> }
-) {
-  try {
-    const { id, action } = await params
-    const BACKEND_URL = api(`/mcp/sessions/${id}/${action}`)
+const ACTIONS = new Set(['approve', 'block', 'budget'])
 
-    const body = await request.text()
-    const res = await fetch(BACKEND_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: body || '{}',
-    })
-
-    const data = await res.json()
-    return NextResponse.json(data, { status: res.status })
-  } catch {
-    return NextResponse.json({ error: 'Failed to proxy to backend' }, { status: 503 })
-  }
+// MCP session controls live under /api/v1/mcp on the backend (not /vigil).
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string; action: string }> }) {
+  const { id, action } = await params
+  if (!ACTIONS.has(action)) return NextResponse.json({ error: 'Unknown action.' }, { status: 404 })
+  return proxy(`/mcp/sessions/${encodeURIComponent(id)}/${action}`, { method: 'POST', body: (await request.text()) || '{}', control: true })
 }

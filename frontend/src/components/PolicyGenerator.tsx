@@ -1,14 +1,15 @@
 'use client'
 
-import { useState } from 'react'
-import { Sparkles, AlertTriangle, Check, X } from 'lucide-react'
+import { useId, useState } from 'react'
+import { AlertTriangle, Check, X } from 'lucide-react'
+import { ApiError, describe, fetchJSON } from '@/lib/api'
 
 interface Policy {
   declared_intent: string
-  allowed_tools: string[]
-  denied_tools: string[]
-  allowed_resources: string[]
-  denied_resources: string[]
+  allowed_tools: string[] | null
+  denied_tools: string[] | null
+  allowed_resources: string[] | null
+  denied_resources: string[] | null
   budget_usd: number
   risk_tolerance: string
   network_access: boolean
@@ -19,7 +20,7 @@ interface Draft {
   id: string
   session_id: string
   policy: Policy
-  dangerous: string[]
+  dangerous: string[] | null
   model_used: string
   provider: string
 }
@@ -27,126 +28,144 @@ interface Draft {
 const EXAMPLE =
   'Allow reading project files and running tests. Block network access, secrets, ' +
   'and arbitrary shell commands. Limit this session to $2.'
+const MAX = 2000
+
+const list = (xs: string[] | null | undefined) => (xs && xs.length ? xs.join(', ') : 'none')
+
+// The draft endpoint answers 503 when no inference model is configured; say that,
+// not the generic "graph database" sentence a 503 gets elsewhere.
+const draftError = (e: unknown) =>
+  e instanceof ApiError && e.status === 503 && e.kind !== 'sleeping'
+    ? 'Policy drafting is unavailable on this server: no inference model is configured.'
+    : describe(e)
 
 /**
  * Compiles plain English into a policy, then makes a human approve it.
  *
- * The draft returned by the backend is inert — the model has no path to
- * enforcement. Applying it is a separate, explicit request, which is the whole
- * reason this is two steps instead of one.
+ * The draft the backend returns is inert: the model has no path to
+ * enforcement. Applying it is a separate, explicit request, which is why this
+ * is two steps instead of one.
  */
-export function PolicyGenerator({ sessionId, onApplied }: { sessionId: string; onApplied?: () => void }) {
+export function PolicyGenerator({ sessionId, onApplied, unavailable }: { sessionId: string; onApplied?: () => void; unavailable?: string | null }) {
   const [text, setText] = useState('')
   const [draft, setDraft] = useState<Draft | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<null | 'draft' | 'apply' | 'discard'>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [invalid, setInvalid] = useState<string | null>(null)
+  const [applied, setApplied] = useState<string | null>(null)
+  const id = useId()
 
   const generate = async () => {
-    setBusy(true); setErr(null); setDraft(null)
+    const t = text.trim()
+    if (!t) { setInvalid('Describe what the session may and may not do.'); return }
+    if (t.length > MAX) { setInvalid(`Keep it under ${MAX} characters.`); return }
+    setInvalid(null); setBusy('draft'); setErr(null); setApplied(null); setDraft(null)
     try {
-      const r = await fetch('/api/v1/vigil/policy/draft', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: sessionId, text }),
+      const d = await fetchJSON<{ draft: Draft }>('/api/v1/vigil/policy/draft', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, text: t }), timeoutMs: 60000,
       })
-      const d = await r.json()
-      if (!r.ok) { setErr(d.error ?? 'Generation failed'); return }
       setDraft(d.draft)
-    } catch {
-      setErr('Control plane unreachable')
-    } finally {
-      setBusy(false)
-    }
+    } catch (e) { setErr(draftError(e)) } finally { setBusy(null) }
   }
 
   const apply = async () => {
     if (!draft) return
-    setBusy(true)
+    setBusy('apply'); setErr(null)
     try {
-      const r = await fetch(`/api/v1/vigil/policy/draft/${draft.id}/confirm`, { method: 'POST' })
-      if (r.ok) { setDraft(null); setText(''); onApplied?.() }
-      else setErr('Could not apply the policy')
-    } catch {
-      setErr('Control plane unreachable')
-    } finally {
-      setBusy(false)
-    }
+      await fetchJSON(`/api/v1/vigil/policy/draft/${encodeURIComponent(draft.id)}/confirm`, { method: 'POST' })
+      setApplied(draft.session_id || sessionId); setDraft(null); setText(''); onApplied?.()
+    } catch (e) {
+      setErr(e instanceof ApiError && e.kind === 'not_found' ? 'This draft no longer exists on the server (it may have restarted). Generate it again.' : describe(e))
+    } finally { setBusy(null) }
   }
 
   const discard = async () => {
     if (!draft) return
-    await fetch(`/api/v1/vigil/policy/draft/${draft.id}`, { method: 'DELETE' }).catch(() => {})
-    setDraft(null)
+    setBusy('discard'); setErr(null)
+    try {
+      await fetchJSON(`/api/v1/vigil/policy/draft/${encodeURIComponent(draft.id)}`, { method: 'DELETE' })
+      setDraft(null)
+    } catch (e) {
+      // Already gone on the server is the outcome discard wanted.
+      if (e instanceof ApiError && e.kind === 'not_found') setDraft(null)
+      else setErr(`Could not discard the draft: ${describe(e)}`)
+    } finally { setBusy(null) }
   }
 
   return (
-    <div className="card p-6 mb-6">
-      <div className="flex items-center gap-2 mb-1">
-        <Sparkles className="w-4 h-4 text-orange-600" />
-        <h2 className="text-sm font-semibold text-gray-800">Describe a policy in plain English</h2>
-      </div>
-      <p className="text-xs text-gray-500 mb-4">
-        Compiled to a structured policy, validated, then shown to you for approval.
-        Nothing is enforced until you apply it.
+    <div className="app-card p-4 sm:p-6">
+      <h3 className="app-h3">Draft a policy from plain English</h3>
+      <p className="app-sub mt-1 mb-4">
+        A model compiles your sentence into a structured policy. You review it; nothing is enforced until you apply it.
       </p>
 
-      <textarea
-        className="w-full rounded-xl border border-gray-200 p-3 text-sm font-mono h-24 focus:outline-none focus:border-orange-400"
-        placeholder={EXAMPLE}
-        value={text}
-        onChange={e => setText(e.target.value)}
-      />
+      {unavailable && <div className="app-banner app-banner-info mb-4" role="status">{unavailable}</div>}
 
-      <div className="flex items-center gap-3 mt-3">
-        <button className="btn-orange" onClick={generate} disabled={busy || !text.trim()}>
-          {busy ? 'Compiling…' : 'Generate'}
+      <div className="app-field">
+        <label htmlFor={`${id}-t`}>What may this session do?</label>
+        <textarea id={`${id}-t`} className="app-input app-mono h-24" placeholder={EXAMPLE} value={text} maxLength={MAX + 200}
+          aria-invalid={!!invalid} aria-describedby={invalid ? `${id}-e` : undefined}
+          onChange={e => { setText(e.target.value); setInvalid(null) }} disabled={!!unavailable} />
+        {invalid && <span id={`${id}-e`} className="app-error-text">{invalid}</span>}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 mt-3">
+        <button type="button" className="app-btn app-btn-primary" onClick={generate} disabled={!!busy || !!unavailable}>
+          {busy === 'draft' ? 'Drafting…' : 'Draft policy'}
         </button>
-        <button className="btn-ghost text-xs" onClick={() => setText(EXAMPLE)} disabled={busy}>
+        <button type="button" className="app-btn app-btn-ghost" onClick={() => { setText(EXAMPLE); setInvalid(null) }} disabled={!!busy || !!unavailable}>
           Use the example
         </button>
       </div>
 
-      {err && (
-        <div className="mt-4 px-4 py-3 rounded-xl bg-orange-50 border border-orange-200 text-orange-700 text-sm flex items-start gap-2">
-          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-          <span>{err}</span>
-        </div>
-      )}
+      <div aria-live="polite">
+        {err && <div className="app-banner app-banner-error mt-4" role="alert"><AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />{err}</div>}
+        {applied && <div className="app-banner app-banner-info mt-4"><Check className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />Applied. The server confirmed this policy is enforcing for session <code className="app-mono">{applied}</code>.</div>}
+      </div>
 
       {draft && (
-        <div className="mt-6 border-t border-gray-100 pt-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-800">Proposed policy</h3>
-            <div className="flex items-center gap-2">
-              <span className="pill pill-gray">{draft.provider}</span>
-              <span className="pill pill-orange">NOT ENFORCED</span>
-            </div>
+        <section className="mt-6 pt-5 border-t border-[#e6ded2]" aria-label="Proposed policy">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h4 className="app-h3">Proposed policy: not enforced</h4>
+            <span className="app-meta">Drafted by {draft.model_used || draft.provider || 'the model'}</span>
           </div>
 
-          {draft.dangerous?.length > 0 && (
-            <div className="mb-4 px-4 py-3 rounded-xl bg-orange-50 border border-orange-200">
-              <p className="text-xs font-semibold text-orange-800 mb-1.5 flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5" /> Review before applying
-              </p>
-              <ul className="text-xs text-orange-700 space-y-1">
-                {draft.dangerous.map((d, i) => <li key={i}>• {d}</li>)}
-              </ul>
+          {!!draft.dangerous?.length && (
+            <div className="app-banner app-banner-warn mb-4" role="note">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+              <div><strong>Review before applying</strong><ul className="list-disc pl-5 mt-1">{draft.dangerous.map((d, i) => <li key={i}>{d}</li>)}</ul></div>
             </div>
           )}
 
-          <pre className="text-xs font-mono bg-gray-50 border border-gray-200 rounded-xl p-4 overflow-x-auto">
-            {JSON.stringify(draft.policy, null, 2)}
-          </pre>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+            {[
+              ['Intent', draft.policy.declared_intent || 'none stated'],
+              ['Budget', `$${draft.policy.budget_usd}`],
+              ['Allowed tools', draft.policy.allowed_tools?.length ? list(draft.policy.allowed_tools) : 'any tool not denied'],
+              ['Denied tools', list(draft.policy.denied_tools)],
+              ['Denied resources', list(draft.policy.denied_resources)],
+              ['Network', draft.policy.network_access ? 'allowed' : 'denied'],
+              ['Secrets', draft.policy.secret_access ? 'allowed' : 'denied'],
+              ['When unsure', draft.policy.risk_tolerance],
+            ].map(([k, v]) => (
+              <div key={k} className="flex gap-2 min-w-0"><dt className="app-label shrink-0 w-32">{k}</dt><dd className="min-w-0 break-words">{v}</dd></div>
+            ))}
+          </dl>
+          <details className="mt-3">
+            <summary className="app-meta cursor-pointer">Raw policy JSON</summary>
+            <pre className="app-mono mt-2 bg-[#faf7f2] border border-[#e6ded2] rounded-lg p-3 overflow-x-auto">{JSON.stringify(draft.policy, null, 2)}</pre>
+          </details>
 
-          <div className="flex items-center gap-3 mt-4">
-            <button className="btn-orange flex items-center gap-1.5" onClick={apply} disabled={busy}>
-              <Check className="w-3.5 h-3.5" /> Apply this policy
+          <div className="flex flex-wrap items-center gap-2 mt-4">
+            <button type="button" className="app-btn app-btn-primary" onClick={apply} disabled={!!busy}>
+              <Check className="w-4 h-4" aria-hidden="true" />{busy === 'apply' ? 'Applying…' : `Apply to session ${draft.session_id || sessionId}`}
             </button>
-            <button className="btn-ghost text-xs flex items-center gap-1.5" onClick={discard} disabled={busy}>
-              <X className="w-3.5 h-3.5" /> Discard
+            <button type="button" className="app-btn app-btn-secondary" onClick={discard} disabled={!!busy}>
+              <X className="w-4 h-4" aria-hidden="true" />{busy === 'discard' ? 'Discarding…' : 'Discard'}
             </button>
           </div>
-        </div>
+        </section>
       )}
     </div>
   )

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import '../styles/base.css'
 import '../styles/docs.css'
+import { VERDICT } from '@/lib/verdict'
 
 const SECTIONS = [
   { id: 'abstract', label: 'Abstract' },
@@ -47,19 +48,20 @@ function CostForecastChart() {
     <div className="docs-chart-card">
       <div className="docs-chart-head">
         <span className="docs-chart-title">Cost trajectory vs. budget</span>
-        <span className="docs-chart-src illustrative">illustrative — real formula</span>
+        <span className="docs-chart-src illustrative">illustrative, not measured</span>
       </div>
       <p className="docs-chart-sub">
         Same shape as <code>forecast.Compute()</code>: burn rate measured from the rolling window, projected
-        forward. Budget ($2.00) is the demo&apos;s actual configured session limit.
+        forward. The $2.00 budget is the default session limit in <code>demo/scenes.py</code> (<code>VIGIL_BUDGET_LIMIT</code>); the
+        trajectory itself is made up to show the shape.
       </p>
       <svg className="docs-chart-svg" viewBox={`0 0 ${w} ${h}`} role="img" aria-label="Cost trajectory approaching the soft and hard budget limits">
         <title>Illustrative cost trajectory using the real forecast formula</title>
         {/* soft/hard reference lines */}
-        <line x1={pad.l} y1={y(hard)} x2={w - pad.r} y2={y(hard)} stroke="#d03b3b" strokeWidth={1.5} strokeDasharray="4 4" opacity={0.55} />
-        <text x={w - pad.r} y={y(hard) - 6} textAnchor="end" fontSize={10} fill="#d03b3b">hard limit · $2.00</text>
-        <line x1={pad.l} y1={y(soft)} x2={w - pad.r} y2={y(soft)} stroke="#fab219" strokeWidth={1.5} strokeDasharray="4 4" opacity={0.6} />
-        <text x={w - pad.r} y={y(soft) - 6} textAnchor="end" fontSize={10} fill="#b8790e">soft limit · $1.60</text>
+        <line x1={pad.l} y1={y(hard)} x2={w - pad.r} y2={y(hard)} stroke="#B42318" strokeWidth={1.5} strokeDasharray="4 4" />
+        <text x={w - pad.r} y={y(hard) - 6} textAnchor="end" fontSize={12} fill="#B42318">hard limit · $2.00</text>
+        <line x1={pad.l} y1={y(soft)} x2={w - pad.r} y2={y(soft)} stroke="#8A5A12" strokeWidth={1.5} strokeDasharray="4 4" />
+        <text x={w - pad.r} y={y(soft) - 6} textAnchor="end" fontSize={12} fill="#8A5A12">soft limit · $1.60</text>
         {/* area under observed */}
         <path d={areaPath} fill="var(--color-orange)" opacity={0.12} />
         {/* observed (solid) */}
@@ -67,17 +69,17 @@ function CostForecastChart() {
         {/* projected (dashed) */}
         <path d={path(projected)} fill="none" stroke="var(--color-orange)" strokeWidth={2.5} strokeDasharray="2 5" strokeLinecap="round" opacity={0.85} />
         <circle cx={x(2)} cy={y(1.18)} r={4} fill="var(--color-orange)" />
-        <text x={x(2) + 8} y={y(1.18) - 8} fontSize={10} fill="var(--color-ink)" fontWeight={700}>now</text>
+        <text x={x(2) + 8} y={y(1.18) - 8} fontSize={12} fill="var(--color-ink)" fontWeight={700}>now</text>
         {/* x axis labels */}
         {[0, 1, 2, 3, 4, 5].map((m) => (
-          <text key={m} x={x(m)} y={h - 8} textAnchor="middle" fontSize={9} fill="var(--color-slate)">{m}m</text>
+          <text key={m} x={x(m)} y={h - 8} textAnchor="middle" fontSize={12} fill="#6B6158">{m}m</text>
         ))}
       </svg>
       <div className="docs-legend">
         <div className="docs-legend-item"><span className="docs-legend-swatch" style={{ background: 'var(--color-orange)' }} />Observed burn</div>
         <div className="docs-legend-item"><span className="docs-legend-swatch" style={{ background: 'var(--color-orange)', opacity: 0.5 }} />Projected (rate × horizon)</div>
-        <div className="docs-legend-item"><span className="docs-legend-swatch" style={{ background: '#fab219' }} />Soft limit (0.80×) → reroute recommended</div>
-        <div className="docs-legend-item"><span className="docs-legend-swatch" style={{ background: '#d03b3b' }} />Hard limit (1.0×) → BLOCK</div>
+        <div className="docs-legend-item"><span className="docs-legend-swatch" style={{ background: '#8A5A12' }} />Soft limit (0.80×) → reroute recommended</div>
+        <div className="docs-legend-item"><span className="docs-legend-swatch" style={{ background: '#B42318' }} />Hard limit (1.0×) → BLOCK</div>
       </div>
     </div>
   )
@@ -112,23 +114,22 @@ function TierBarChart() {
     <div className="docs-chart-card">
       <div className="docs-chart-head">
         <span className="docs-chart-title">Calls by escalation tier</span>
-        <span className="docs-chart-src illustrative">illustrative example</span>
+        <span className="docs-chart-src illustrative">illustrative, not measured</span>
       </div>
       <p className="docs-chart-sub">
-        An example distribution under normal agent behavior — the structural point (G1) is that Normal never
-        reaches the model, not this exact split.
+        Made-up percentages to show the idea; they were not measured. The structural point (G1) is that Normal never
+        reaches the model. For a measured figure, see the hero above: 0 of 399 decisions needed a model.
       </p>
       <div ref={ref} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {data.map((d, i) => (
           <div key={d.tier} style={{ display: 'grid', gridTemplateColumns: '96px 1fr 44px', alignItems: 'center', gap: 10 }}>
             <span style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-ink)' }}>{d.tier}</span>
             <div style={{ background: 'rgba(20,16,13,0.05)', borderRadius: 6, height: 18, overflow: 'hidden' }} title={d.note}>
-              <div style={{
-                width: visible ? `${(d.pct / max) * 100}%` : '0%', height: '100%', background: d.shade, borderRadius: 6,
-                transition: `width 0.7s cubic-bezier(0.34,1.56,0.64,1) ${i * 0.08}s`,
+              <div className="docs-bar-fill" style={{
+                width: visible ? `${(d.pct / max) * 100}%` : '0%', height: '100%', background: d.shade, borderRadius: 6, transitionDelay: `${i * 0.08}s`,
               }} />
             </div>
-            <span style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.78rem', fontWeight: 700, color: 'var(--color-slate)', textAlign: 'right' }}>{d.pct}%</span>
+            <span style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.78rem', fontWeight: 700, color: 'var(--color-slate)', textAlign: 'right' }}>{d.pct}%<span className="docs-sr"> (example)</span></span>
           </div>
         ))}
       </div>
@@ -136,49 +137,62 @@ function TierBarChart() {
   )
 }
 
+// Measured, not live: the benign scenario set from scripts/measure.py,
+// copied from docs/measurements.md (run m1792244160, 2026-10-17 13:36 UTC,
+// local server and FalkorDB 6.0.2). The verdict colours are the product's
+// own (lib/verdict.ts); each bar also carries its label and count.
+const BENIGN_RUN = [
+  { reply: 'allow', count: 270, v: 'allowed' as const, note: 'ran without a prompt: autonomy earned from a clean history' },
+  { reply: 'prompt', count: 120, v: 'allowed' as const, note: 'no objection; Claude Code asked as it normally does' },
+  { reply: 'ask', count: 0, v: 'paused' as const, note: 'paused for a person' },
+  { reply: 'rewrite', count: 0, v: 'rewritten' as const, note: 'an argument cut out' },
+  { reply: 'deny', count: 0, v: 'blocked' as const, note: 'blocked' },
+]
+
 function OutcomeChart() {
-  const allow = 89, block = 25, total = allow + block
+  const total = BENIGN_RUN.reduce((a, r) => a + r.count, 0)
   const { ref, visible } = useInViewBars<HTMLDivElement>()
   return (
     <div className="docs-chart-card">
       <div className="docs-chart-head">
-        <span className="docs-chart-title">Decisions recorded this session</span>
-        <span className="docs-chart-src real">real — from the audit ledger</span>
+        <span className="docs-chart-title">Hook replies on {total} ordinary calls</span>
+        <span className="docs-chart-src real">measured 2026-10-17, not live</span>
       </div>
       <p className="docs-chart-sub">
-        {total}{' '}decisions verified in the hash chain during this session&apos;s live demo run — every outcome
-        recorded, not blocks alone (G5).
+        30 sessions × 13 everyday calls (ls, git, reads, an edit, <code>go test</code>, two package installs) sent through the
+        PreToolUse hook by <code>scripts/measure.py</code> against a local server. Every reply is recorded, not blocks alone (G5).
+        Source: <code>docs/measurements.md</code>.
       </p>
       <div ref={ref} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr 36px', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.8rem', fontWeight: 700, color: '#157a2e' }}>ALLOW</span>
-          <div style={{ background: 'rgba(20,16,13,0.05)', borderRadius: 6, height: 20 }}>
-            <div style={{ width: visible ? `${(allow / total) * 100}%` : '0%', height: '100%', background: '#0ca30c', borderRadius: 6, transition: 'width 0.8s cubic-bezier(0.34,1.56,0.64,1)' }} />
+        {BENIGN_RUN.map((r, i) => (
+          <div key={r.reply} className="docs-outcome-row">
+            <span className="docs-outcome-label" style={{ color: VERDICT[r.v].ink }}>{r.reply}<span className="docs-outcome-v">{VERDICT[r.v].label}</span></span>
+            <div style={{ background: 'rgba(20,16,13,0.05)', borderRadius: 6, height: 20 }} title={r.note}>
+              <div className="docs-bar-fill" style={{ width: visible ? `${(r.count / total) * 100}%` : '0%', height: '100%', background: VERDICT[r.v].mark, borderRadius: 6, transitionDelay: `${i * 0.08}s` }} />
+            </div>
+            <span style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.8rem', fontWeight: 700, textAlign: 'right' }}>{r.count}</span>
           </div>
-          <span style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.78rem', fontWeight: 700, textAlign: 'right' }}>{allow}</span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr 36px', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.8rem', fontWeight: 700, color: '#b23030' }}>BLOCK</span>
-          <div style={{ background: 'rgba(20,16,13,0.05)', borderRadius: 6, height: 20 }}>
-            <div style={{ width: visible ? `${(block / total) * 100}%` : '0%', height: '100%', background: '#d03b3b', borderRadius: 6, transition: 'width 0.8s cubic-bezier(0.34,1.56,0.64,1) 0.1s' }} />
-          </div>
-          <span style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.78rem', fontWeight: 700, textAlign: 'right' }}>{block}</span>
-        </div>
+        ))}
       </div>
+      <p className="docs-chart-sub" style={{ marginTop: 14, marginBottom: 0 }}>
+        In the same run all eight attack beats got the verdict they were built for (deny, ask, rewrite, published to the shared threat graph, or flagged), so
+        the zeros above are not a firewall that never says no.
+      </p>
     </div>
   )
 }
 
 function CodeBlock({ children, label }: { children: string; label?: string }) {
-  const [copied, setCopied] = useState(false)
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(children.trim()); setState('copied') } catch { setState('failed') }
+    setTimeout(() => setState('idle'), 1500)
+  }
   return (
     <div className="docs-code">
-      {label && <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-ember)', marginBottom: 10 }}>{label}</div>}
-      <button
-        className="docs-code-copy"
-        onClick={() => { navigator.clipboard.writeText(children.trim()); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
-      >
-        {copied ? 'copied' : 'copy'}
+      {label && <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-ember)', marginBottom: 10 }}>{label}</div>}
+      <button type="button" className="docs-code-copy" onClick={copy} aria-label={state === 'idle' ? `Copy ${label || 'this code'}` : undefined}>
+        <span aria-live="polite">{state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : 'Copy'}</span>
       </button>
       <pre>{children.trim()}</pre>
     </div>
@@ -207,12 +221,9 @@ function useRevealOnScroll() {
 export default function DocsPage() {
   const [active, setActive] = useState('abstract')
   const [progress, setProgress] = useState(0)
-  const observed = useRef(false)
   useRevealOnScroll()
 
   useEffect(() => {
-    if (observed.current) return
-    observed.current = true
     const obs = new IntersectionObserver(
       (entries) => {
         entries.forEach((e) => { if (e.isIntersecting) setActive(e.target.id) })
@@ -236,7 +247,9 @@ export default function DocsPage() {
 
   const jumpTo = (id: string) => (e: React.MouseEvent) => {
     e.preventDefault()
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const smooth = !matchMedia('(prefers-reduced-motion: reduce)').matches
+    document.getElementById(id)?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' })
+    history.replaceState(null, '', `#${id}`)
   }
 
   return (
@@ -270,22 +283,26 @@ export default function DocsPage() {
           <Link href="/login" className="docs-btn docs-btn--ghost">Open the control plane</Link>
         </div>
 
-        <div className="docs-stats">
-          <div className="docs-stat"><b>114</b><span>tests, 10 packages</span></div>
-          <div className="docs-stat"><b>1</b><span>shipped inference vendor</span></div>
-          <div className="docs-stat"><b>0</b><span>inference on the happy path</span></div>
-          <div className="docs-stat"><b>SHA-256</b><span>hash-chained audit log</span></div>
+        <div className="docs-stats" role="list" aria-label="Measured figures">
+          <div className="docs-stat" role="listitem"><b>0.71 ms</b><span>median graph time per decision (398 decisions)</span></div>
+          <div className="docs-stat" role="listitem"><b>0 of 390</b><span>ordinary calls blocked</span></div>
+          <div className="docs-stat" role="listitem"><b>0 of 399</b><span>decisions that needed a model</span></div>
+          <div className="docs-stat" role="listitem"><b>200 of 200</b><span>lookups of made-up names returned nothing</span></div>
         </div>
+        <p className="docs-stats-src">
+          Measured once, not live: <code>scripts/measure.py</code> on 2026-10-17 against a local server and FalkorDB 6.0.2, no model
+          credentials (run m1792244160). Full results and method in <code>docs/measurements.md</code>; rerun the script to reproduce.
+        </p>
       </header>
 
       {/* ─── Body ─── */}
       <div className="docs-body">
-        <aside className="docs-toc">
-          <div className="docs-toc__label">On this page</div>
+        <nav className="docs-toc" aria-label="On this page">
+          <div className="docs-toc__label" aria-hidden="true">On this page</div>
           {SECTIONS.map((s) => (
-            <a key={s.id} href={`#${s.id}`} onClick={jumpTo(s.id)} className={active === s.id ? 'active' : ''}>{s.label}</a>
+            <a key={s.id} href={`#${s.id}`} onClick={jumpTo(s.id)} className={active === s.id ? 'active' : ''} aria-current={active === s.id ? 'location' : undefined}>{s.label}</a>
           ))}
-        </aside>
+        </nav>
 
         <article className="docs-article">
           {/* ── Abstract ── */}
@@ -343,7 +360,7 @@ export default function DocsPage() {
             <span className="docs-section-num">§2</span>
             <h2>System architecture</h2>
             <p>
-              The firewall (<code>pkg/query-service/vigil/firewall</code>) is the single choke point every MCP
+              The firewall (<code>internal/firewall</code>) is the single choke point every MCP
               tool call passes through. Deterministic checks run first and always; the inference chain is
               consulted only past the escalation gate. Figure 1 shows the full path from agent to dashboard.
             </p>
@@ -479,10 +496,11 @@ export default function DocsPage() {
           {/* ── Inference ── */}
           <section id="inference" className="docs-reveal">
             <span className="docs-section-num">§5</span>
-            <h2>Inference: Featherless</h2>
+            <h2>Inference vendors</h2>
             <p>
-              Featherless is the one inference vendor this product ships against — not one of several fallbacks,
-              the vendor. The client (<code>llm/openai_compatible.go</code>) speaks the OpenAI-compatible
+              Three vendors ship in the chain, tried in this order (<code>internal/llm/chain.go</code>): Featherless, the
+              hackathon&apos;s compute partner, then NVIDIA and Gemini. Each is configured from its own key and skipped
+              when it has none, so the chain runs with whichever keys are set. The client (<code>llm/openai_compatible.go</code>) speaks the OpenAI-compatible
               <code>/chat/completions</code> contract, which is a deliberate, load-bearing decision: it is what
               let this exact client be proven against a real endpoint before a Featherless credential existed
               (below), rather than shipping untested.
@@ -534,11 +552,11 @@ export default function DocsPage() {
             <h3>5.2 Getting the most out of one Featherless key</h3>
             <p>
               There is no batching, caching, or clever prompt-compression trick here — the efficiency comes from
-              a simpler property: most calls never reach Featherless at all, and the ones that do reach the
+              a simpler property: most calls never reach a model at all, and the ones that do reach the
               cheapest model that can answer them.
             </p>
             <div className="docs-grid">
-              <div className="docs-tile tinted"><h4>Zero cost on the happy path</h4><p>The escalation gate (§3, step 4) is not a soft preference — <code>RolesFor(TierNormal)</code> returns an empty slice, so a Normal-tier call cannot reach the network layer at all. Per the tier chart above, that&apos;s the large majority of traffic under normal agent behavior.</p></div>
+              <div className="docs-tile tinted"><h4>Zero cost on the happy path</h4><p>The escalation gate (§3, step 4) is not a soft preference — <code>RolesFor(TierNormal)</code> returns an empty slice, so a Normal-tier call cannot reach the network layer at all. In the measured run (<code>docs/measurements.md</code>), 0 of 399 decisions would have gone to a model had one been configured.</p></div>
               <div className="docs-tile"><h4>Kimi-K3 does the triage</h4><p>Both FAST_RISK_CLASSIFIER and POLICY_REASONER use the same model — Kimi-K3 handles the Suspicious and Uncertain tiers, which is most of what actually escalates. GLM-5.2 is never called for these.</p></div>
               <div className="docs-tile"><h4>GLM-5.2 is reserved</h4><p>DEEP_SECURITY_REVIEWER only runs on a call the reasoner already flagged HIGH or CRITICAL — the strongest, most expensive model in the pair is spent only where the stakes justify it, not on every escalation.</p></div>
               <div className="docs-tile"><h4>Downward-only fallback</h4><p>If a role&apos;s model is transiently unavailable, <code>fallbackRole()</code> only ever steps to a <em>cheaper</em> role. A reviewer hiccup degrades to the reasoner; a cheap-model hiccup never silently invokes the expensive one.</p></div>
@@ -578,13 +596,14 @@ export default function DocsPage() {
               Verification recomputes the chain from the first record; a reordered, edited, or deleted event
               breaks the chain at the exact index it was tampered.
             </p>
-            <CodeBlock label="verify from the CLI">{`vigil-cli audit verify [session_id]
-# PASS — 190 events verified
-# FAIL — tampering detected at event 72 (hash mismatch)`}</CodeBlock>
+            <CodeBlock label="verify from the CLI (output format)">{`vigil-cli audit verify [session_id]
+# PASS — <n> events verified
+# FAIL — tampering detected at event <i> (<reason>)`}</CodeBlock>
             <p>
-              Or from the dashboard/API: <code>GET /api/v1/vigil/audit/verify?session=...</code>. In this
-              session&apos;s run, the ledger verified clean at 190 events after a live demo pass, 89 ALLOW and 25
-              BLOCK — deliberately not filtered to blocks only, per G5.
+              Or from the dashboard/API: <code>GET /api/v1/vigil/audit/verify?session=...</code>. The report counts every
+              event, ALLOW included, per G5. Tamper detection is covered by tests that edit a record and expect the
+              chain to break at it (<code>TestTamperedEvent</code>, <code>TestVerifyEventsDetectsATamperedRecord</code> in
+              <code>internal/audit/audit_test.go</code>).
             </p>
           </section>
 
@@ -680,18 +699,19 @@ VIGIL_FEATHERLESS_MODEL_REVIEWER=zai-org/GLM-5.2`}</CodeBlock>
             <span className="docs-section-num">§12</span>
             <h2>Implementation and evaluation</h2>
             <p>
-              114 tests pass across 10 Go packages under <code>-race</code>: audit, cost, dna, engine, firewall,
-              llm, mcp, policy, recovery, replay. <code>go vet</code> is clean. The frontend type-checks with
-              <code>tsc --noEmit</code>.
+              <code>go test ./...</code> runs the unit tests without a database; with <code>VIGIL_FALKORDB_URL</code> set,
+              the live graph tests run against FalkorDB too. The frontend type-checks with <code>tsc --noEmit</code>. This
+              page does not quote a test count, because it would go stale; run the suite to see the current one.
             </p>
             <table className="docs-table">
               <thead><tr><th>Component</th><th>Status</th></tr></thead>
               <tbody>
-                <tr><td>Decision pipeline</td><td>7/7 demo scenes, verified both with and without inference credentials</td></tr>
-                <tr><td>OpenAI-compatible client (Groq stand-in)</td><td>Real completions, real risk scores, confirmed in this session&apos;s run — same code path Featherless uses</td></tr>
-                <tr><td>Vendor exhaustion handling</td><td>Confirmed against the real Featherless API with a deliberately invalid key: 401 → retired, no crash</td></tr>
-                <tr><td>Audit chain</td><td>190 events, verified clean; tamper injection caught at the exact altered index</td></tr>
-                <tr><td>Backend verification suite</td><td>20/20 checks (<code>demo/verify.py</code>) — zero fake or mocked data</td></tr>
+                <tr><td>Decision pipeline</td><td>Seven demo scenes (<code>demo/run_demo.sh</code>); scene 3 needs a vendor key for a real model verdict</td></tr>
+                <tr><td>OpenAI-compatible client</td><td><code>llm/live_test.go</code> runs it against real vendors; it needs keys and skips without them</td></tr>
+                <tr><td>Vendor exhaustion handling</td><td>401/402/403 retire a vendor (<code>llm/chain.go</code>, <code>ErrExhausted</code>); a transient 429 does not</td></tr>
+                <tr><td>Audit chain</td><td>Tamper tests in <code>internal/audit/audit_test.go</code> catch an edited record at its index</td></tr>
+                <tr><td>Measured behaviour</td><td>Latency, model-free decisions, false blocks, abstention and attack beats: <code>docs/measurements.md</code> (2026-10-17)</td></tr>
+                <tr><td>Backend verification script</td><td><code>demo/verify.py</code> exercises a running server&apos;s endpoints end to end</td></tr>
               </tbody>
             </table>
           </section>
@@ -707,10 +727,10 @@ VIGIL_FEATHERLESS_MODEL_REVIEWER=zai-org/GLM-5.2`}</CodeBlock>
               <li><b className="n">4</b><p>NIST. <em>FIPS 180-4: Secure Hash Standard</em> (SHA-256), for the audit hash chain.</p></li>
               <li><b className="n">5</b><p>Project Vigil. <em>Source, verified claims, and full README.</em> github.com/Aaditya1273/Vigil</p></li>
             </ol>
-            <p style={{ marginTop: 24, fontSize: '0.82rem', opacity: 0.7 }}>
-              Vigil is hackathon software built for Impact Forge Summer 2026. Every claim on this page was
-              either verified in this repository&apos;s own test suite and demo run, or explicitly marked
-              unverified — nothing here is aspirational.
+            <p style={{ marginTop: 24, fontSize: '0.85rem' }}>
+              Vigil is hackathon software built for Impact Forge Summer 2026. Measured figures on this page name the
+              run they come from and its date; illustrative charts say so; everything else describes the code and
+              points at the file it lives in. Nothing on this page is a live statistic.
             </p>
           </section>
         </article>

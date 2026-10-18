@@ -1,159 +1,136 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Dna } from 'lucide-react'
+import { useState } from 'react'
+import Link from 'next/link'
+import { useResource } from '@/lib/useResource'
+import { ResourceGate, StatePanel, InfoPopover } from '@/components/app/ui'
 
+// GET /vigil/dna/profiles. Today the server builds each profile from the
+// agent's live state. Only the fields that come from that state are shown:
+// the response also carries fixed baselines (cost per run, latency, tokens),
+// a p95 that is twice the last latency and a run count derived from tokens,
+// which are placeholders rather than measurements.
 interface DNAProfile {
-  agent_id: string; anomaly_score: number; drift_detected: boolean
-  baseline_cost_per_run: number; baseline_latency_ms: number
-  avg_cost: number; avg_latency: number; p95_latency: number
-  tool_usage_distribution: Record<string, number>
-  last_updated: string; run_count: number
+  agent_id: string
+  anomaly_score: number
+  drift_detected: boolean
+  avg_cost: number
+  avg_latency: number
+  tool_usage_distribution: Record<string, number> | null
+  last_updated: string
+}
+
+const money = (v: number) => `$${v < 1 ? v.toFixed(4) : v.toFixed(2)}`
+const score = (s: number) => Math.round(s * 100)
+const level = (s: number) => (s > 0.7 ? 'High' : s > 0.4 ? 'Elevated' : 'Low')
+const updated = (iso: string) => {
+  const d = new Date(iso)
+  return !iso || iso.startsWith('0001') || Number.isNaN(d.getTime()) ? '—' : d.toLocaleString()
 }
 
 export default function AgentDNAPage() {
-  const [profiles, setProfiles] = useState<DNAProfile[]>([])
-  const [selected, setSelected] = useState<DNAProfile | null>(null)
-  const [loading, setLoading]   = useState(true)
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const r = await fetch('/api/vigil/dna/profiles')
-        if (r.ok) { const d = await r.json(); setProfiles(d); if (d.length) setSelected(d[0]) }
-      } finally { setLoading(false) }
-    }
-    load(); const t = setInterval(load, 30000); return () => clearInterval(t)
-  }, [])
-
-  const scoreColor = (s: number) => s > 0.7 ? 'text-red-600' : s > 0.4 ? 'text-orange-600' : 'text-green-600'
-  const scoreBar   = (s: number) => s > 0.7 ? 'bg-red-500' : s > 0.4 ? 'bg-orange-500' : 'bg-green-500'
-
-  if (loading) return (
-    <div className="p-8 flex items-center justify-center h-40">
-      <div className="w-6 h-6 rounded-full border-2 border-orange-600 border-t-transparent animate-spin" />
-    </div>
-  )
+  const res = useResource<DNAProfile[] | null>('/api/vigil/dna/profiles', { intervalMs: 15000 })
+  // Selection is kept by id, so a refresh that returns new objects (or a new order) keeps it.
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   return (
-    <div className="p-8 max-w-6xl mx-auto animate-fadeIn">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Agent DNA</h1>
-        <p className="text-sm text-gray-500 mt-1">Behavioral baselines, drift detection &amp; anomaly scoring.</p>
-      </div>
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fadeIn">
+      <h1>Agent DNA</h1>
+      <p className="mb-8">A risk score per agent from its status and spend, as the server reports it. It is a simple rule today, not a learned baseline.</p>
 
-      {profiles.length === 0 ? (
-        <div className="card p-12 text-center">
-          <Dna className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 text-sm">No agent profiles yet.</p>
-          <p className="text-gray-400 text-xs mt-1">Connect Claude via MCP to generate behavioral data.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-12 gap-5">
-          {/* List */}
-          <div className="col-span-4 card overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-100">
-              <h2 className="text-sm font-semibold text-gray-700">Profiles ({profiles.length})</h2>
-            </div>
-            {profiles.map(p => (
-              <button key={p.agent_id} onClick={() => setSelected(p)}
-                className={`w-full text-left px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors ${selected?.agent_id === p.agent_id ? 'bg-orange-50 border-l-2 border-l-orange-500' : ''}`}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-mono text-gray-700 truncate">{p.agent_id.slice(0, 16)}…</span>
-                  {p.drift_detected && <span className="pill pill-orange text-[10px]">Drift</span>}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-gray-500">Score</span>
-                  <div className="flex-1 progress-track h-1.5">
-                    <div className={`h-full rounded-full ${scoreBar(p.anomaly_score)}`} style={{ width: `${p.anomaly_score * 100}%` }} />
-                  </div>
-                  <span className={`text-[10px] font-semibold ${scoreColor(p.anomaly_score)}`}>{(p.anomaly_score * 100).toFixed(0)}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-
-          {/* Detail */}
-          <div className="col-span-8 space-y-4">
-            {selected ? (
-              <>
-                <div className="card p-5">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-mono text-sm font-semibold text-gray-800">{selected.agent_id}</h3>
-                    {selected.drift_detected && (
-                      <span className="pill pill-orange">⚠ Behavioral Drift</span>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    {[
-                      { l: 'Avg Cost / Run', v: `$${selected.avg_cost.toFixed(4)}`, sub: `baseline $${selected.baseline_cost_per_run.toFixed(4)}` },
-                      { l: 'Avg Latency',   v: `${selected.avg_latency}ms`, sub: `p95 ${selected.p95_latency}ms` },
-                      { l: 'Runs',          v: selected.run_count.toLocaleString(), sub: `baseline ${selected.baseline_latency_ms}ms` },
-                    ].map(m => (
-                      <div key={m.l} className="bg-gray-50 rounded-xl p-3">
-                        <p className="text-xs text-gray-500">{m.l}</p>
-                        <p className="text-xl font-bold text-gray-900 mt-0.5">{m.v}</p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">{m.sub}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="card p-5">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Tool Usage Distribution</h3>
-                  {Object.keys(selected.tool_usage_distribution).length === 0 ? (
-                    <p className="text-sm text-gray-400">No tool data yet</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {Object.entries(selected.tool_usage_distribution).sort(([,a],[,b]) => b - a).map(([tool, count]) => {
-                        const total = Object.values(selected.tool_usage_distribution).reduce((a,b) => a+b, 0)
-                        const pct = (count / total) * 100
+      <ResourceGate r={res} loading="Loading agent profiles…"
+        isEmpty={d => !d || d.length === 0}
+        empty={
+          <StatePanel kind="empty" title="No agents have connected yet">
+            A profile appears for each agent once it connects to this server. <Link href="/connect" className="underline decoration-[#ff6b00] decoration-2 underline-offset-2 text-[#14100d]">How to connect an agent</Link>
+          </StatePanel>
+        }>
+        {d => {
+          const profiles = (d ?? []).slice().sort((a, b) => a.agent_id.localeCompare(b.agent_id)) // stable order: a poll never reshuffles the list
+          const selected = profiles.find(p => p.agent_id === selectedId) ?? profiles[0]
+          const lost = selectedId !== null && selected.agent_id !== selectedId
+          return (
+            <div className="grid gap-6 lg:grid-cols-12">
+              <section className="lg:col-span-5" aria-labelledby="dna-list">
+                <h2 id="dna-list" className="app-h2">Agents</h2>
+                <p className="app-sub mb-3">{profiles.length} reported. Select one to see its profile.</p>
+                <div className="app-table-wrap">
+                  <table className="data-table">
+                    <thead><tr><th scope="col">Agent</th><th scope="col">Flag</th><th scope="col" className="text-right">Score</th></tr></thead>
+                    <tbody>
+                      {profiles.map(p => {
+                        const on = p.agent_id === selected.agent_id
                         return (
-                          <div key={tool} className="flex items-center gap-3">
-                            <span className="text-xs text-gray-500 w-36 truncate font-mono">{tool}</span>
-                            <div className="flex-1 progress-track">
-                              <div className="progress-fill" style={{ width: `${pct}%` }} />
-                            </div>
-                            <span className="text-xs text-gray-500 w-10 text-right">{pct.toFixed(0)}%</span>
-                          </div>
+                          <tr key={p.agent_id} className="app-row-button" tabIndex={0} aria-selected={on}
+                            onClick={() => setSelectedId(p.agent_id)}
+                            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedId(p.agent_id) } }}>
+                            <td className="app-mono break-all">{p.agent_id}</td>
+                            <td className="text-[13px] whitespace-nowrap">{p.drift_detected ? <span className="pill pill-red">Flagged</span> : '—'}</td>
+                            <td className="app-mono text-right">{score(p.anomaly_score)}</td>
+                          </tr>
                         )
                       })}
-                    </div>
-                  )}
+                    </tbody>
+                  </table>
                 </div>
+              </section>
 
-                <div className="card p-5 flex items-center gap-5">
-                  {/* Donut anomaly score */}
-                  <div className="relative w-20 h-20 flex-shrink-0">
-                    <svg viewBox="0 0 36 36" className="w-20 h-20 -rotate-90">
-                      <circle cx="18" cy="18" r="14" fill="none" stroke="#f0f0f0" strokeWidth="4" />
-                      <circle cx="18" cy="18" r="14" fill="none"
-                        stroke={selected.anomaly_score > 0.7 ? '#ef4444' : selected.anomaly_score > 0.4 ? '#ea580c' : '#22c55e'}
-                        strokeWidth="4"
-                        strokeDasharray={`${selected.anomaly_score * 87.96} 87.96`}
-                        strokeLinecap="round" />
-                    </svg>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-sm font-bold text-gray-900">{(selected.anomaly_score * 100).toFixed(0)}</span>
-                    </div>
+              <section className="lg:col-span-7" aria-labelledby="dna-detail">
+                <h2 id="dna-detail" className="app-h2 break-all">{selected.agent_id}</h2>
+                <p className="app-sub mb-3">Last updated {updated(selected.last_updated)}</p>
+                {lost && (
+                  <div className="app-banner app-banner-info mb-3" role="status">
+                    The agent you selected is no longer reported by the server; showing the first one instead.
                   </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800">Anomaly Score</p>
-                    <p className={`text-sm font-medium mt-0.5 ${scoreColor(selected.anomaly_score)}`}>
-                      {selected.anomaly_score > 0.7 ? 'High Risk' : selected.anomaly_score > 0.4 ? 'Elevated' : 'Normal'}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1 max-w-xs">
-                      {selected.drift_detected ? 'Behavioral drift detected.' : 'Agent behavior within normal parameters.'}
-                    </p>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="card p-12 text-center text-sm text-gray-400">Select a profile to view details</div>
-            )}
-          </div>
+                )}
+                <Detail p={selected} />
+              </section>
+            </div>
+          )
+        }}
+      </ResourceGate>
+    </div>
+  )
+}
+
+function Detail({ p }: { p: DNAProfile }) {
+  const s = score(p.anomaly_score)
+  const tools = Object.keys(p.tool_usage_distribution ?? {})
+  return (
+    <div className="app-card p-5">
+      <div className="flex flex-wrap items-start gap-4">
+        <div>
+          <span className="app-label inline-flex items-center gap-1.5">Score
+            <InfoPopover label="How the score is worked out">
+              The server sets 85 when the agent is blocked or stopped. Otherwise it is the agent&apos;s spend divided by $10
+              once spend passes $1 (capped at 100), and 10 below that. &ldquo;Flagged&rdquo; means blocked or stopped.
+            </InfoPopover>
+          </span>
+          <div className="app-num mt-1">{s}<span className="text-[15px] font-normal text-[#5e544b]"> / 100</span></div>
+          <p className="text-[14px] font-semibold mt-1">{level(p.anomaly_score)}{p.drift_detected ? ' · Flagged: blocked or stopped' : ''}</p>
         </div>
-      )}
+        <div className="flex-1 min-w-[180px] self-center">
+          <div className="h-2 rounded-full bg-[#efe8de]" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={s} aria-label="Score">
+            <div className="h-full rounded-full motion-safe:transition-[width]" style={{ width: `${s}%`, background: p.anomaly_score > 0.7 ? '#b42318' : p.anomaly_score > 0.4 ? '#ff6b00' : '#8f8478' }} />
+          </div>
+          <div className="flex justify-between app-meta mt-1"><span>0</span><span>100</span></div>
+        </div>
+      </div>
+
+      <dl className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
+        <div><dt className="app-label">Spend so far (est.)</dt><dd className="app-mono text-[15px] font-semibold mt-0.5">{money(p.avg_cost ?? 0)}</dd></div>
+        <div>
+          <dt className="app-label">Last reported latency</dt>
+          <dd className="app-mono text-[15px] font-semibold mt-0.5">{p.avg_latency ? `${p.avg_latency} ms` : '—'}</dd>
+          {!p.avg_latency && <dd className="app-meta">Not reported by this agent</dd>}
+        </div>
+        <div><dt className="app-label">Last tool</dt><dd className="app-mono text-[15px] font-semibold mt-0.5 break-all">{tools[0] || '—'}</dd></div>
+      </dl>
+
+      <p className="app-meta mt-6">
+        The server&apos;s profile also includes fixed baseline figures and a derived p95 and run count. They are placeholders, not
+        measurements, so this page does not show them.
+      </p>
     </div>
   )
 }

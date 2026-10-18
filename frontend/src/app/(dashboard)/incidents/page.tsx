@@ -1,110 +1,152 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { AlertTriangle, Shield, Activity, CheckCircle } from 'lucide-react'
+import Link from 'next/link'
+import { useResource, type Resource } from '@/lib/useResource'
+import { verdictOf, stageLabel, isStopped } from '@/lib/verdict'
+import { ResourceGate, StatePanel, Kpi, VerdictBadge } from '@/components/app/ui'
+import { when } from '@/components/DecisionStream'
 
-interface Agent {
-  agent_id: string; status: string; current_cost: number
-  latency_ms: number; last_tool: string; updated_at: string
+interface Decision {
+  decision: string; stage: string; reason: string; rule_name?: string; severity?: string
+  tool: string; session_id: string; at: string
 }
+interface Agent { agent_id: string; status: string; current_cost: number; last_tool: string; updated_at: string }
+interface Audit { ok: boolean; count: number; failed_at?: number; reason?: string }
+interface Rules { count: number; note?: string; rules: { name: string; enabled: boolean }[] | null }
+
+const WINDOW = 500
+const AGENT_STATUS: Record<string, string> = { BLOCKED: 'Blocked', DEAD: 'Stopped' }
+const money = (v: number) => `$${v < 1 ? v.toFixed(4) : v.toFixed(2)}`
+const cap = (s?: string) => (s ? s[0] + s.slice(1).toLowerCase() : '—')
+const known = <T,>(r: Resource<T>) => (r.status === 'ready' ? r.data : null)
+const why = (r: Resource<unknown>, failed: string) => (r.status === 'loading' ? 'Loading…' : failed)
 
 export default function IncidentsPage() {
-  const [agents, setAgents]   = useState<Agent[]>([])
-  const [rules,  setRules]    = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const decisions = useResource<{ decisions: Decision[] | null }>(`/api/v1/vigil/decisions?limit=${WINDOW}`, { intervalMs: 5000 })
+  const agents = useResource<Agent[] | null>('/api/vigil/agents', { intervalMs: 8000 })
+  const audit = useResource<Audit>('/api/v1/vigil/audit/verify', { intervalMs: 30000 })
+  const rules = useResource<Rules>('/api/vigil/governance/rules', { intervalMs: 60000 })
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [ar, rr] = await Promise.all([
-          fetch('/api/vigil/agents').then(r => r.json()),
-          fetch('/api/vigil/governance/rules').then(r => r.json()),
-        ])
-        setAgents(Array.isArray(ar) ? ar : [])
-        setRules(rr.rules ?? [])
-      } finally { setLoading(false) }
-    }
-    load()
-    const t = setInterval(load, 8000)
-    return () => clearInterval(t)
-  }, [])
-
-  const incidents = agents.filter(a => a.status === 'BLOCKED' || a.status === 'DEAD')
-  const open    = incidents.length
-  const healthy = agents.filter(a => a.status === 'RUNNING').length
-  const critical = rules.filter(r => r.severity === 'CRITICAL' && r.enabled).length
+  const d = known(decisions)
+  const all = d ? (d.decisions ?? []) : null // null = unknown, never 0
+  const stopped = all ? all.filter(x => isStopped(verdictOf(x.decision, x.stage))).reverse() : null
+  const a = known(agents)
+  const agentList = agents.status === 'ready' ? (a ?? []) : null
+  const troubled = agentList ? agentList.filter(x => x.status === 'BLOCKED' || x.status === 'DEAD') : null
+  const log = known(audit)
 
   return (
-    <div className="p-8 max-w-6xl mx-auto animate-fadeIn">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Incident Center</h1>
-        <p className="text-sm text-gray-500 mt-1">Track and manage runtime incidents across all agents.</p>
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fadeIn">
+      <h1>Incidents</h1>
+      <p className="mb-8">Calls VIGIL stopped, agents that are blocked or stopped, and whether the decision log is still intact.</p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Kpi value={stopped ? stopped.length : null} label="Stopped calls"
+          note={all ? `Blocked, paused or rewritten, of the last ${all.length} decisions` : why(decisions, 'Could not load the decision log')} />
+        <Kpi value={troubled ? troubled.length : null} label="Agents blocked or stopped"
+          note={agentList ? `Of ${agentList.length} the server reports` : why(agents, 'Could not load the agent list')} />
+        <Kpi value={log ? (log.ok ? 'Intact' : 'Broken') : null} label="Decision log" tone={log && !log.ok ? '#b42318' : undefined}
+          note={log ? (log.ok ? `${log.count} entries verified` : `Fails at entry ${log.failed_at ?? '?'}`) : why(audit, 'Could not be checked')} />
       </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        {[
-          { l: 'Open Incidents', v: open,     icon: AlertTriangle, hi: open > 0 },
-          { l: 'Healthy Agents', v: healthy,  icon: CheckCircle,   hi: false },
-          { l: 'Critical Rules', v: critical, icon: Shield,        hi: false },
-        ].map(s => (
-          <div key={s.l} className="stat-card flex items-center gap-4">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${s.hi ? 'bg-red-50' : 'bg-orange-50'}`}>
-              <s.icon className={`w-5 h-5 ${s.hi ? 'text-red-600' : 'text-orange-600'}`} />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 font-medium">{s.l}</p>
-              <p className={`text-2xl font-bold ${s.hi ? 'text-red-600' : 'text-gray-900'}`}>{s.v}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="card overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
-          <Activity className="w-4 h-4 text-orange-600" />
-          <h2 className="text-sm font-semibold text-gray-800">
-            {open > 0 ? `${open} Active Incident${open !== 1 ? 's' : ''}` : 'No Active Incidents'}
-          </h2>
+      {log && !log.ok && (
+        <div className="app-banner app-banner-error mt-4" role="alert">
+          <VerdictBadge v="critical" solid />
+          <span>The decision log failed verification at entry {log.failed_at ?? '?'}{log.reason ? `: ${log.reason}` : ''}. Entries from there on cannot be trusted as evidence.</span>
         </div>
+      )}
 
-        {loading ? (
-          <div className="py-10 flex justify-center">
-            <div className="w-5 h-5 rounded-full border-2 border-orange-500 border-t-transparent animate-spin" />
+      <section className="mt-10" aria-labelledby="sc-title">
+        <div className="flex flex-wrap items-end justify-between gap-2 mb-3">
+          <div>
+            <h2 id="sc-title" className="app-h2">Stopped calls</h2>
+            <p className="app-sub">Newest first, from the server’s recent decision log (up to {WINDOW} decisions). The graph evidence for each is on the Decisions page.</p>
           </div>
-        ) : incidents.length === 0 ? (
-          <div className="py-14 text-center">
-            <CheckCircle className="w-8 h-8 text-green-400 mx-auto mb-3" />
-            <p className="text-sm text-gray-500 font-medium">All agents healthy</p>
-            <p className="text-xs text-gray-400 mt-1">
-              Incidents appear here when governance rules fire or agents exceed budget.
-              Connect Claude via the Plugins page to start monitoring.
-            </p>
+          <Link href="/decisions" className="app-btn app-btn-secondary app-btn-sm">Open Decisions</Link>
+        </div>
+        <ResourceGate r={decisions} loading="Loading stopped calls…" compact
+          isEmpty={() => (stopped ?? []).length === 0}
+          empty={<StatePanel kind="empty" title="No stopped calls" compact>None of the last {all?.length ?? 0} decisions was blocked, paused or rewritten.</StatePanel>}>
+          {() => (
+            <div className="app-table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr><th scope="col">Time</th><th scope="col">Verdict</th><th scope="col">What VIGIL saw</th><th scope="col">Tool</th>
+                    <th scope="col">Session</th><th scope="col">Reason</th><th scope="col">Severity</th></tr>
+                </thead>
+                <tbody>
+                  {(stopped ?? []).map((x, i) => (
+                    <tr key={`${x.at}-${i}`}>
+                      <td className="app-mono whitespace-nowrap"><time dateTime={x.at}>{when(x.at)}</time></td>
+                      <td><VerdictBadge v={verdictOf(x.decision, x.stage)} /></td>
+                      <td className="text-[13px] min-w-[170px]">{stageLabel(x.stage)}</td>
+                      <td className="app-mono">{x.tool}</td>
+                      <td className="app-mono break-all min-w-[90px]">{x.session_id || '—'}</td>
+                      <td className="text-[13px] text-[#5e544b] min-w-[220px] max-w-[48ch]">{x.rule_name ? `${x.rule_name}: ` : ''}{x.reason}</td>
+                      <td className="text-[13px]">{cap(x.severity)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </ResourceGate>
+      </section>
+
+      <section className="mt-10" aria-labelledby="ab-title">
+        <div className="flex flex-wrap items-end justify-between gap-2 mb-3">
+          <div>
+            <h2 id="ab-title" className="app-h2">Agents blocked or stopped</h2>
+            <p className="app-sub">Resume or stop agents from Mission Control.</p>
           </div>
-        ) : (
-          <table className="data-table">
-            <thead>
-              <tr><th>Agent</th><th>Status</th><th>Cost</th><th>Latency</th><th>Last Tool</th><th>Updated</th></tr>
-            </thead>
-            <tbody>
-              {incidents.map(a => (
-                <tr key={a.agent_id}>
-                  <td className="font-mono text-xs text-gray-700">{a.agent_id.slice(0,22)}…</td>
-                  <td>
-                    <span className={`pill ${a.status === 'BLOCKED' ? 'pill-orange' : 'pill-red'}`}>
-                      <span className={`pill-dot ${a.status === 'BLOCKED' ? 'bg-orange-500' : 'bg-red-500'}`} />
-                      {a.status}
-                    </span>
-                  </td>
-                  <td className="font-mono text-xs text-orange-600">${(a.current_cost??0).toFixed(4)}</td>
-                  <td className="text-xs text-gray-500">{a.latency_ms}ms</td>
-                  <td className="text-xs text-gray-400">{a.last_tool||'—'}</td>
-                  <td className="text-xs text-gray-400">{a.updated_at ? new Date(a.updated_at).toLocaleTimeString() : '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+          <Link href="/mission-control" className="app-btn app-btn-secondary app-btn-sm">Open Mission Control</Link>
+        </div>
+        <ResourceGate r={agents} loading="Loading agents…" compact
+          isEmpty={() => (troubled ?? []).length === 0}
+          empty={
+            <StatePanel kind="empty" title={agentList?.length ? 'No agent is blocked or stopped' : 'No agents have connected yet'} compact>
+              {agentList?.length ? `All ${agentList.length} agents the server reports are running or paused.` : 'Agents appear once they connect to this server.'}
+            </StatePanel>
+          }>
+          {() => (
+            <div className="app-table-wrap">
+              <table className="data-table">
+                <thead><tr><th scope="col">Agent</th><th scope="col">Status</th><th scope="col" className="text-right">Spend (est.)</th><th scope="col">Last tool</th><th scope="col">Updated</th></tr></thead>
+                <tbody>
+                  {(troubled ?? []).map(x => (
+                    <tr key={x.agent_id}>
+                      <td className="app-mono break-all">{x.agent_id}</td>
+                      <td><span className={`pill ${x.status === 'BLOCKED' ? 'pill-red' : 'pill-gray'}`}>{AGENT_STATUS[x.status]}</span></td>
+                      <td className="app-mono text-right">{money(x.current_cost ?? 0)}</td>
+                      <td className="app-mono">{x.last_tool || '—'}</td>
+                      <td className="app-mono whitespace-nowrap">{x.updated_at && !x.updated_at.startsWith('0001') ? when(x.updated_at) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </ResourceGate>
+      </section>
+
+      <section className="mt-10" aria-labelledby="det-title">
+        <h2 id="det-title" className="app-h2">Detectors that can raise an incident</h2>
+        <p className="app-sub mb-3">Behaviour rules registered on this server.</p>
+        <ResourceGate r={rules} loading="Loading detectors…" compact
+          isEmpty={r => !r.rules || r.rules.length === 0}
+          empty={<StatePanel kind="empty" title="No detectors registered" compact>The server reports no behaviour rules.</StatePanel>}>
+          {r => (
+            <div className="app-card p-5">
+              <ul className="flex flex-wrap gap-2">
+                {(r.rules ?? []).map(x => (
+                  <li key={x.name} className="pill pill-gray">{x.name}{x.enabled ? '' : ' (disabled)'}</li>
+                ))}
+              </ul>
+              {r.note && <p className="app-meta mt-3">{r.note}</p>}
+            </div>
+          )}
+        </ResourceGate>
+      </section>
     </div>
   )
 }

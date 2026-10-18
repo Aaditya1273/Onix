@@ -1,345 +1,278 @@
 'use client'
 
 import { useEffect, useState, Suspense } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
-import { Shield, Zap, DollarSign, AlertTriangle, CheckCircle, XCircle, Loader2, ExternalLink } from 'lucide-react'
+import { useSearchParams } from 'next/navigation'
+import { AlertTriangle, Clock, Loader2 } from 'lucide-react'
+import '@/app/(dashboard)/app.css'
+import { fetchJSON, ApiError, describe } from '@/lib/api'
+import { useResource } from '@/lib/useResource'
+import { StatePanel, CopyButton } from '@/components/app/ui'
 import { ConnectGuide } from './guide'
+
+// The OAuth consent screen. Claude (or any MCP client) sends the user here
+// with ?request=<id>; everything shown comes from GET /api/vigil/oauth/request.
+// Nothing is granted until Approve returns 2xx, and the user only leaves for
+// the client's redirect address after the server has answered.
 
 interface OAuthRequest {
   request_id: string
   client_name: string
   client_id: string
   scope: string
+  redirect_uri?: string
   expires_at: string
 }
 
-const BUDGET_OPTIONS = [
-  { value: 5,   label: '$5',  desc: 'Light session' },
-  { value: 10,  label: '$10', desc: 'Standard' },
-  { value: 25,  label: '$25', desc: 'Heavy analysis' },
-  { value: 50,  label: '$50', desc: 'Unlimited work' },
+// The server turns a budget <= 0 into $10, so there is no "unlimited": $10 is the default.
+const DEFAULT_BUDGET = 10
+const PRESETS = [5, 10, 25, 50]
+
+// What the connection can actually do: the tools the MCP server lists
+// (internal/mcp/tools.go and internal/appserver/ask.go). The file and shell
+// tools work inside the VIGIL server's own project folder, not on your computer.
+const CAN_DO = [
+  'Read, search and list files, and run shell commands, inside the VIGIL server’s own project folder (not on your computer).',
+  'Ask VIGIL what it would decide for a call, what a call would touch, and why a call was stopped.',
+  'Read VIGIL’s list of agents, a session’s behaviour profile and the cost status.',
 ]
 
-function ConnectInner() {
-  const params = useSearchParams()
-  const router = useRouter()
-  const requestId = params.get('request')
+function hostOf(uri?: string) {
+  if (!uri) return null
+  try { return new URL(uri) } catch { return null }
+}
 
-  const [req, setReq]           = useState<OAuthRequest | null>(null)
-  const [loading, setLoading]   = useState(true)
-  const [error, setError]       = useState<string | null>(null)
-  const [budget, setBudget]     = useState(10)
-  const [approving, setApproving] = useState(false)
-  const [denying, setDenying]   = useState(false)
-  const [done, setDone]         = useState(false)
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="app-shell min-h-screen bg-[#F5F1EA] text-[#14100D] flex justify-center px-4 py-8 sm:py-14">
+      <div className="w-full max-w-[520px]">
+        <p className="font-[Epilogue,sans-serif] text-[20px] font-black tracking-[-0.04em] mb-6">VIGIL</p>
+        {children}
+      </div>
+    </main>
+  )
+}
 
+// An end state: expired, not found, denied, redirecting. Says what happened and what was (not) granted.
+function Outcome({ title, children, busy }: { title: string; children: React.ReactNode; busy?: boolean }) {
+  return (
+    <Shell>
+      <section className="app-panel p-6 sm:p-8" role="status" aria-live="polite">
+        <h1 className="font-[Epilogue,sans-serif] text-[24px] leading-[30px] font-bold tracking-[-0.02em] flex items-center gap-2">
+          {busy && <Loader2 className="w-5 h-5 animate-spin motion-reduce:animate-none text-[#6B6158]" aria-hidden="true" />}{title}
+        </h1>
+        <div className="app-sub mt-3 space-y-3">{children}</div>
+      </section>
+    </Shell>
+  )
+}
+
+type Phase = { k: 'form' } | { k: 'approved'; to: string } | { k: 'denied'; to: string } | { k: 'expired'; denied?: boolean }
+
+function Consent({ requestId }: { requestId: string }) {
+  const r = useResource<OAuthRequest>(`/api/vigil/oauth/request?id=${encodeURIComponent(requestId)}`)
+  const [phase, setPhase] = useState<Phase>({ k: 'form' })
+  const [budget, setBudget] = useState(String(DEFAULT_BUDGET))
+  const [busy, setBusy] = useState<'approve' | 'deny' | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+
+  // The countdown, and the moment the request expires.
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 5000); return () => clearInterval(t) }, [])
+
+  // Leave for the client only after the server has answered, and only to the address it returned.
   useEffect(() => {
-    if (!requestId) {
-      setError('No request ID provided. This page should only be reached via an MCP OAuth flow.')
-      setLoading(false)
-      return
-    }
-    fetch(`/api/vigil/oauth/request?id=${encodeURIComponent(requestId)}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.error) throw new Error(data.error)
-        setReq(data)
-      })
-      .catch(e => setError(e.message ?? 'Request not found or expired'))
-      .finally(() => setLoading(false))
-  }, [requestId])
+    if (phase.k === 'approved' || phase.k === 'denied') window.location.assign(phase.to)
+  }, [phase])
 
-  const handleApprove = async () => {
-    if (!req) return
-    setApproving(true)
+  if (phase.k === 'approved') return <Outcome title="Approved" busy>Returning you to <b className="text-[#14100D]">{hostOf(phase.to)?.host ?? 'the app'}</b>…</Outcome>
+  if (phase.k === 'denied') return <Outcome title="Access denied" busy>Nothing was granted. Returning you to <b className="text-[#14100D]">{hostOf(phase.to)?.host ?? 'the app'}</b> so it knows you said no…</Outcome>
+  if (phase.k === 'expired') {
+    return (
+      <Outcome title="This request already expired">
+        <p>
+          VIGIL no longer holds this request, so your {phase.denied ? 'Deny' : 'Approve'} changed nothing. Requests last 10 minutes and
+          can be answered once; if you answered it in another tab, that answer stands.
+        </p>
+        <p>To connect, start again from your app (in Claude: Settings, Connectors).</p>
+      </Outcome>
+    )
+  }
+
+  if (r.status === 'loading') return <Shell><StatePanel kind="loading" title="Loading the connection request…" /></Shell>
+  if (r.status === 'error' || !r.data) {
+    if (r.error?.kind === 'not_found') {
+      return (
+        <Outcome title="Connection request not found">
+          <p>There is no pending request with this link. It may have expired (requests last 10 minutes), been answered already, or the link is incomplete.</p>
+          <p>Nothing was granted. Start the connection again from your app.</p>
+        </Outcome>
+      )
+    }
+    const sleeping = ['sleeping', 'network', 'timeout'].includes(r.error?.kind ?? '')
+    return (
+      <Shell>
+        <StatePanel kind={sleeping ? 'sleeping' : 'error'} title={sleeping ? 'Cannot reach VIGIL yet' : 'The request could not be loaded'} onRetry={r.retry}>
+          {describe(r.error)} Nothing has been granted.
+        </StatePanel>
+      </Shell>
+    )
+  }
+
+  const req = r.data
+  const expires = new Date(req.expires_at)
+  const msLeft = expires.getTime() - now
+  const expired = !isNaN(msLeft) && msLeft <= 0
+  const minsLeft = Math.max(0, Math.ceil(msLeft / 60000))
+  const dest = hostOf(req.redirect_uri)
+  const insecure = dest && dest.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(dest.hostname)
+  const amount = Number(budget)
+  const budgetError = budget.trim() === '' || !Number.isFinite(amount) ? 'Enter a budget in US dollars.'
+    : amount <= 0 ? 'The budget must be more than $0.' : null
+
+  const approve = async () => {
+    if (budgetError || expired) return
+    setBusy('approve'); setErr(null)
     try {
-      const res = await fetch('/api/vigil/oauth/approve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id: req.request_id, budget_limit: budget }),
+      const d = await fetchJSON<{ redirect_to?: string }>('/api/vigil/oauth/approve', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: req.request_id, budget_limit: Math.round(amount * 100) / 100 }),
       })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
-      setDone(true)
-      if (data.redirect_to) {
-        window.location.href = data.redirect_to
-      }
-    } catch (e: any) {
-      setError(e.message ?? 'Approval failed')
-      setApproving(false)
+      if (!d.redirect_to) throw new ApiError('parse', 'VIGIL approved the request but sent no address to return to. Start the connection again from your app.')
+      setPhase({ k: 'approved', to: d.redirect_to })
+    } catch (e) {
+      if (e instanceof ApiError && e.kind === 'not_found') setPhase({ k: 'expired' })
+      else { setErr(`Approval did not go through. ${describe(e)}`); setBusy(null) }
     }
   }
 
-  const handleDeny = async () => {
-    if (!req) return
-    setDenying(true)
+  const deny = async () => {
+    setBusy('deny'); setErr(null)
     try {
-      const res = await fetch('/api/vigil/oauth/deny', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id: req.request_id }),
+      const d = await fetchJSON<{ redirect_to?: string; status?: string }>('/api/vigil/oauth/deny', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ request_id: req.request_id }),
       })
-      const data = await res.json()
-      setDone(true)
-      if (data.redirect_to) {
-        window.location.href = data.redirect_to
-      } else {
-        router.push('/')
-      }
-    } catch {
-      setDenying(false)
-      router.push('/')
+      if (d.status === 'already_expired') setPhase({ k: 'expired', denied: true })
+      else if (d.redirect_to) setPhase({ k: 'denied', to: d.redirect_to })
+      else throw new ApiError('parse', 'VIGIL did not say where to send you back.')
+    } catch (e) {
+      setErr(`Deny did not go through. ${describe(e)} Nothing has been granted; the request expires on its own at ${expires.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`)
+      setBusy(null)
     }
   }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center p-4">
-        <div className="bg-white border border-red-100 rounded-3xl p-8 max-w-md w-full text-center space-y-4 shadow-xl shadow-red-500/5">
-          <AlertTriangle className="w-12 h-12 text-red-500 mx-auto" />
-          <h1 className="text-xl font-bold text-gray-900">Connection Request Invalid</h1>
-          <p className="text-sm text-gray-500">{error}</p>
-          <p className="text-xs text-gray-400">
-            This happens when the request has expired (10 min limit) or the URL is incorrect.
-            Try connecting again from Claude.
-          </p>
-          <a href="https://claude.ai" className="inline-flex items-center gap-1 text-xs font-semibold text-orange-600 hover:text-orange-500 transition-colors">
-            Back to Claude <ExternalLink className="w-3 h-3" />
-          </a>
-        </div>
-      </div>
-    )
-  }
-
-  if (done) {
-    return (
-      <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center">
-        <div className="text-center space-y-4 animate-fadeIn">
-          <div className="w-16 h-16 bg-green-50 border border-green-100 rounded-full flex items-center justify-center mx-auto">
-            <CheckCircle className="w-8 h-8 text-green-500" />
-          </div>
-          <p className="text-gray-900 font-bold text-lg">Redirecting back to Claude…</p>
-          <Loader2 className="w-5 h-5 text-gray-400 animate-spin mx-auto" />
-        </div>
-      </div>
-    )
-  }
-
-  const clientDisplay = req?.client_name || req?.client_id || 'Claude'
-  const expiresAt = req ? new Date(req.expires_at) : null
-  const minsLeft = expiresAt ? Math.max(0, Math.round((expiresAt.getTime() - Date.now()) / 60000)) : 0
 
   return (
-    <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center p-4 selection:bg-orange-100 selection:text-orange-900">
-      
-      <div className="w-full max-w-[440px] space-y-6 animate-fadeIn">
-        
-        {/* Header with Live Connection Animation */}
-        <div className="text-center pt-2">
-          
-          <style dangerouslySetInnerHTML={{__html: `
-            @keyframes flowDash {
-              0% { stroke-dasharray: 15, 100; stroke-dashoffset: 115; }
-              100% { stroke-dasharray: 15, 100; stroke-dashoffset: 0; }
-            }
-            .animate-flow-dash {
-              animation: flowDash 1.5s linear infinite;
-            }
-            @keyframes pulseGlow {
-              0%, 100% { opacity: 0.5; filter: blur(4px); }
-              50% { opacity: 1; filter: blur(6px); }
-            }
-            .animate-pulse-glow {
-              animation: pulseGlow 2s ease-in-out infinite;
-            }
-          `}} />
-
-          <div className="flex items-center justify-center w-full mb-8 relative px-4">
-            
-            {/* AI Client Node */}
-            <div className="relative z-10 w-[60px] h-[60px] rounded-2xl bg-white border border-gray-100 shadow-xl shadow-gray-200/50 flex items-center justify-center shrink-0">
-              <div className="absolute inset-0 rounded-2xl bg-orange-500/5 animate-pulse"></div>
-              {/* Fallback to Claude logo, or we could use generic AI icon if clientDisplay is unknown */}
-              {clientDisplay.toLowerCase().includes('claude') ? (
-                <img src="/ai-logos/claude-desktop.png" alt={clientDisplay} className="w-9 h-9 object-contain drop-shadow-sm" />
-              ) : clientDisplay.toLowerCase().includes('cursor') ? (
-                <img src="/ai-logos/cursor.png" alt={clientDisplay} className="w-9 h-9 object-contain drop-shadow-sm" />
-              ) : clientDisplay.toLowerCase().includes('antigravity') ? (
-                <img src="/ai-logos/antigravity.png" alt={clientDisplay} className="w-9 h-9 object-contain drop-shadow-sm" />
-              ) : (
-                <div className="w-9 h-9 bg-gray-100 rounded-xl flex items-center justify-center font-bold text-gray-500">{clientDisplay.charAt(0)}</div>
-              )}
-            </div>
-
-            {/* Animated Connection Bridge */}
-            <div className="flex-1 max-w-[140px] mx-2 relative h-12 flex items-center justify-center">
-              {/* Subtle background track */}
-              <div className="absolute w-full h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent"></div>
-              
-              {/* Flowing energy SVG */}
-              <svg className="absolute w-full h-full overflow-visible" viewBox="0 0 100 24" preserveAspectRatio="none">
-                <defs>
-                  <linearGradient id="flow-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#FF6B00" stopOpacity="0.1" />
-                    <stop offset="50%" stopColor="#FF9340" stopOpacity="1" />
-                    <stop offset="100%" stopColor="#D97757" stopOpacity="0.1" />
-                  </linearGradient>
-                  <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-                    <feGaussianBlur stdDeviation="3" result="blur" />
-                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                  </filter>
-                </defs>
-                
-                {/* Sine wave path connecting left to right */}
-                <path 
-                  d="M 0,12 C 25,0 75,24 100,12" 
-                  fill="none" 
-                  stroke="url(#flow-gradient)" 
-                  strokeWidth="2.5" 
-                  strokeLinecap="round"
-                  className="animate-flow-dash"
-                  style={{ filter: 'url(#glow)' }}
-                />
-                
-                {/* Secondary inverse wave for DNA/intertwined look */}
-                <path 
-                  d="M 0,12 C 25,24 75,0 100,12" 
-                  fill="none" 
-                  stroke="url(#flow-gradient)" 
-                  strokeWidth="1.5" 
-                  strokeLinecap="round"
-                  className="animate-flow-dash opacity-60"
-                  style={{ animationDelay: '0.75s', filter: 'url(#glow)' }}
-                />
-              </svg>
-            </div>
-
-            {/* VIGIL Node */}
-            <div className="relative z-10 w-[60px] h-[60px] rounded-2xl bg-gradient-to-br from-[#FF6B00] to-[#D97757] border border-orange-400 shadow-xl shadow-orange-500/30 flex items-center justify-center shrink-0">
-              <div className="absolute -inset-1 rounded-2xl bg-orange-500/30 animate-pulse-glow pointer-events-none"></div>
-              <Shield className="w-7 h-7 text-white" strokeWidth={2.2} aria-label="VIGIL" />
-            </div>
-            
-          </div>
-          
-          <h1 className="text-[22px] font-bold text-gray-900 tracking-tight">Connect to VIGIL</h1>
-          <p className="text-sm text-gray-500 mt-2">
-            <span className="text-gray-900 font-semibold">{clientDisplay}</span> wants to use the VIGIL MCP tools
+    <Shell>
+      <section className="app-panel overflow-hidden" aria-labelledby="consent-title">
+        <div className="p-6 sm:p-7 border-b border-[#E6DED2]">
+          <h1 id="consent-title" className="font-[Epilogue,sans-serif] text-[24px] leading-[30px] font-bold tracking-[-0.02em]">Allow this app to use VIGIL?</h1>
+          <p className="app-sub mt-2">An app is asking to connect to VIGIL&apos;s MCP tools. Check who it is and where approval sends you before you answer.</p>
+          <p className={`mt-3 inline-flex items-center gap-1.5 text-[13px] font-medium ${expired || minsLeft <= 2 ? 'text-[#8A5A12]' : 'text-[#5E544B]'}`}>
+            <Clock className="w-3.5 h-3.5" aria-hidden="true" />
+            {isNaN(msLeft) ? 'Expiry time not reported.'
+              : expired ? 'This request has expired.'
+              : <>Expires at {expires.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (in {minsLeft} minute{minsLeft === 1 ? '' : 's'})</>}
           </p>
         </div>
 
-        <div className="bg-white/80 backdrop-blur-xl border border-gray-200/60 rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] overflow-hidden">
-          
-          {/* What gets access */}
-          <div className="p-6 space-y-4 border-b border-gray-100/80">
-            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">This connection will allow:</p>
-            <div className="space-y-4">
-              {[
-                { icon: Zap, label: 'Read files, search code, run commands in your project' },
-                { icon: Shield, label: 'Ask the graph: blast radius, identities, facts, shared threats' },
-                { icon: DollarSign, label: 'Every tool call is metered against your budget' },
-              ].map(({ icon: Icon, label }) => (
-                <div key={label} className="flex items-start gap-3.5">
-                  <div className="w-8 h-8 rounded-xl bg-orange-50 border border-orange-100 flex items-center justify-center flex-shrink-0">
-                    <Icon className="w-4 h-4 text-orange-600" />
-                  </div>
-                  <p className="text-sm font-medium text-gray-700 leading-snug pt-1.5">{label}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Budget selector */}
-          <div className="p-6 bg-gray-50/50 space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Session Budget</p>
-              <span className="text-[10px] font-medium text-gray-500 bg-gray-200/50 px-2 py-0.5 rounded-full">Blocked at limit</span>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-3">
-              {BUDGET_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  onClick={() => setBudget(opt.value)}
-                  className={`py-3 px-4 rounded-2xl border text-left transition-all hover:shadow-md ${
-                    budget === opt.value
-                      ? 'border-orange-500 bg-orange-50 shadow-orange-500/10 ring-1 ring-orange-500 ring-offset-1'
-                      : 'border-gray-200 bg-white hover:border-orange-300'
-                  }`}
-                >
-                  <p className={`text-base font-bold ${budget === opt.value ? 'text-orange-700' : 'text-gray-900'}`}>{opt.label}</p>
-                  <p className={`text-[11px] mt-0.5 font-medium ${budget === opt.value ? 'text-orange-600/80' : 'text-gray-500'}`}>{opt.desc}</p>
-                </button>
-              ))}
-            </div>
-            
-            <p className="text-[12px] font-medium text-gray-500 text-center pt-2">
-              Selected: <span className="text-orange-600 font-bold font-mono bg-orange-50 px-1.5 py-0.5 rounded-md">${budget}.00</span> — VIGIL will block {clientDisplay} when consumed.
-            </p>
-          </div>
-
-          {/* Action buttons */}
-          <div className="p-6 bg-white border-t border-gray-100/80 space-y-4">
-            
-            {/* Expiry notice */}
-            {minsLeft <= 5 && minsLeft > 0 && (
-              <div className="flex items-center justify-center gap-2 text-xs font-semibold text-amber-600 bg-amber-50 py-2 rounded-xl">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                Request expires in {minsLeft} minute{minsLeft !== 1 ? 's' : ''}
+        <dl className="p-6 sm:p-7 space-y-5 border-b border-[#E6DED2]">
+          <div>
+            <dt className="app-label">The app</dt>
+            <dd className="mt-1">
+              <span className="text-[16px] font-semibold">{req.client_name ? `“${req.client_name}”` : 'No name given'}</span>
+              <p className="app-meta mt-1">The app chose this name when it registered itself; VIGIL cannot verify it. The return address below is what identifies where your approval goes.</p>
+              <div className="mt-2 flex items-center gap-2 min-w-0">
+                <span className="app-meta shrink-0">Client ID</span>
+                <code className="app-mono min-w-0 truncate" title={req.client_id}>{req.client_id}</code>
+                <CopyButton text={req.client_id} label="Copy the client ID" />
               </div>
-            )}
-
-            <div className="flex gap-3">
-              <button
-                onClick={handleDeny}
-                disabled={denying || approving}
-                className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm transition-colors disabled:opacity-50"
-              >
-                {denying ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
-                Deny
-              </button>
-              <button
-                onClick={handleApprove}
-                disabled={approving || denying}
-                className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl text-white font-bold text-sm hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 shadow-lg shadow-[#D97757]/30"
-                style={{ background: 'linear-gradient(135deg, #FF6B00, #FF9340)' }}
-              >
-                {approving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                Approve
-              </button>
-            </div>
+            </dd>
           </div>
 
+          <div>
+            <dt className="app-label">Returns you to</dt>
+            <dd className="mt-1">
+              {dest ? (
+                <>
+                  <span className="app-mono text-[15px] font-semibold text-[#14100D] break-all">{dest.host}</span>
+                  <details className="mt-1">
+                    <summary className="app-meta cursor-pointer w-fit">Full address</summary>
+                    <code className="app-mono block mt-1 break-all text-[#5E544B]">{req.redirect_uri}</code>
+                  </details>
+                  {insecure && (
+                    <p className="app-banner app-banner-warn mt-2"><AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />This address is not HTTPS, so the approval code would travel unencrypted.</p>
+                  )}
+                </>
+              ) : (
+                <span className="app-sub">— {req.redirect_uri ? <>an address this page could not read: <code className="app-mono break-all">{req.redirect_uri}</code></> : 'this server did not report it.'}</span>
+              )}
+            </dd>
+          </div>
+
+          <div>
+            <dt className="app-label">Scope requested</dt>
+            <dd className="mt-1 app-sub">
+              {req.scope ? <code className="app-mono text-[#14100D]">{req.scope}</code> : <>None named (VIGIL has one scope, <code className="app-mono">mcp</code>: its MCP tools).</>}
+            </dd>
+          </div>
+
+          <div>
+            <dt className="app-label">With it, the app can</dt>
+            <dd className="mt-1">
+              <ul className="list-disc pl-5 space-y-1 text-[14px] leading-[21px] text-[#14100D]">
+                {CAN_DO.map(t => <li key={t}>{t}</li>)}
+              </ul>
+              <p className="app-meta mt-2">Every call it makes is decided by VIGIL first and charged against the budget below.</p>
+            </dd>
+          </div>
+        </dl>
+
+        <div className="p-6 sm:p-7 bg-[#FAF7F2] border-b border-[#E6DED2]">
+          <div className="app-field">
+            <label htmlFor="budget" className="app-h3">Session budget (US dollars)</label>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5E544B] text-[14px]" aria-hidden="true">$</span>
+                <input id="budget" className="app-input" style={{ width: 120, paddingLeft: 24 }} type="number" inputMode="decimal" min="0.01" step="0.01"
+                  value={budget} onChange={e => setBudget(e.target.value)} aria-invalid={!!budgetError} aria-describedby="budget-help budget-err" />
+              </div>
+              <div className="flex gap-1.5" role="group" aria-label="Common budgets">
+                {PRESETS.map(p => (
+                  <button key={p} type="button" onClick={() => setBudget(String(p))} aria-pressed={amount === p}
+                    className={`app-btn app-btn-sm ${amount === p ? 'app-btn-primary' : 'app-btn-secondary'}`}>${p}</button>
+                ))}
+              </div>
+            </div>
+            {budgetError && <p id="budget-err" className="app-error-text" role="alert">{budgetError}</p>}
+            <p id="budget-help" className="app-meta">When this session&apos;s spend reaches the budget, VIGIL blocks its further calls. There is no unlimited option; the default is ${DEFAULT_BUDGET}.</p>
+          </div>
         </div>
-        
-        <p className="text-center text-[11px] font-medium text-gray-400">
-          VIGIL · AI Agent Runtime Governance
-        </p>
-      </div>
-    </div>
+
+        <div className="p-6 sm:p-7">
+          {err && <p className="app-banner app-banner-error mb-4" role="alert"><AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />{err}</p>}
+          <div className="flex flex-col-reverse sm:flex-row gap-3">
+            <button type="button" onClick={deny} disabled={!!busy || expired} className="app-btn app-btn-secondary flex-1 min-h-[44px]">
+              {busy === 'deny' && <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}Deny
+            </button>
+            <button type="button" onClick={approve} disabled={!!busy || expired || !!budgetError} className="app-btn app-btn-primary flex-1 min-h-[44px]">
+              {busy === 'approve' && <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}Approve with a ${budgetError ? '—' : amount.toFixed(2)} budget
+            </button>
+          </div>
+          {expired && <p className="app-meta mt-3">This request expired, so it can no longer be approved or denied. Start the connection again from your app.</p>}
+        </div>
+      </section>
+    </Shell>
   )
 }
 
 // Claude's OAuth flow lands here with ?request=…; anyone else gets the setup guide.
 function ConnectRoute() {
-  return useSearchParams().get('request') ? <ConnectInner /> : <ConnectGuide />
+  const id = useSearchParams().get('request')
+  return id ? <Consent requestId={id} /> : <ConnectGuide />
 }
 
 export default function ConnectPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <Loader2 className="w-6 h-6 text-indigo-400 animate-spin" />
-      </div>
-    }>
+    <Suspense fallback={<Shell><StatePanel kind="loading" title="Loading…" /></Shell>}>
       <ConnectRoute />
     </Suspense>
   )

@@ -24,3 +24,12 @@ func TestPlaygroundAllowsAnyOrigin(t *testing.T) {
 		t.Fatalf("get: reached=%v headers=%v", reached, rec.Header())
 	}
 }
+
+func TestDashboardOriginsFromEnv(t *testing.T) {
+	t.Setenv("VIGIL_ALLOWED_ORIGINS", " https://a.example/ ,https://b.example")
+	t.Setenv("VIGIL_DASHBOARD_BASE", "https://c.example")
+	got := dashboardOrigins()
+	if len(got) != 3 || got[0] != "https://a.example" || got[1] != "https://b.example" || got[2] != "https://c.example" {
+		t.Fatalf("origins: %q", got)
+	}
+}

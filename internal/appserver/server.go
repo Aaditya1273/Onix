@@ -26,6 +26,7 @@ import (
 // calls flow through, the firewall behind it, and the dashboard API.
 func NewServer(addr string) *http.Server {
 	logger := slog.Default()
+	state.SetAllowedOrigins(dashboardOrigins())
 
 	// --- Core Engines ---
 	budgetLimit := 100.0
@@ -491,4 +492,18 @@ func legacyPathRewrite(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// dashboardOrigins are the browser origins allowed to open the event stream
+// WebSocket: VIGIL_ALLOWED_ORIGINS (comma-separated) and VIGIL_DASHBOARD_BASE.
+// Without them a browser on another origin is refused; non-browser clients,
+// which send no Origin, always connect.
+func dashboardOrigins() []string {
+	var out []string
+	for _, o := range strings.Split(vigil.Env("ALLOWED_ORIGINS")+","+vigil.Env("DASHBOARD_BASE"), ",") {
+		if o = strings.TrimRight(strings.TrimSpace(o), "/"); o != "" {
+			out = append(out, o)
+		}
+	}
+	return out
 }

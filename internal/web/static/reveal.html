@@ -7,12 +7,12 @@
 <link rel="stylesheet" href="vigil.css">
 </head>
 <body>
-<main id="app"><section class="screen"><p class="sub">Reading the graph…</p></section></main>
+<main id="app"><section class="screen"><h1 class="sr-only">VIGIL reveal</h1><div id="state"></div></section></main>
 <div class="bar">
   <span class="grow">Built from your local agent history. Nothing left this machine; secrets in labels are masked.</span>
   <a class="btn" href="timeline.html">Time travel</a>
-  <button id="share">Copy summary</button>
-  <button class="primary" id="run">Run this on yours</button>
+  <button id="share" type="button">Copy summary</button>
+  <button class="primary" id="run" type="button">Run this on yours</button>
 </div>
 <script src="vigil.js"></script>
 <script>
@@ -23,10 +23,18 @@ document.getElementById('run').onclick = e => VG.copy(RUN, e.target);
 
 function screen(html, cls) { const s = document.createElement('section'); s.className = 'screen ' + (cls || ''); s.innerHTML = html; app.appendChild(s); return s; }
 
+const th = cols => `<thead><tr>${cols.map(c => `<th scope="col">${c}</th>`).join('')}</tr></thead>`;
+
 async function main() {
   let data;
+  const st = document.getElementById('state');
+  if (st) VG.state(st, 'loading', 'Reading the graph…', 'Replaying your agent history through VIGIL.');
   try { data = await VG.getJSON('/api/v1/vigil/reveal'); }
-  catch (err) { app.innerHTML = `<section class="screen"><p class="big">The graph is not reachable.</p><p class="sub error">${esc(err.message)}</p></section>`; return; }
+  catch (err) {
+    app.innerHTML = '<section class="screen"><h1 class="big">The reveal could not be loaded.</h1><div id="state"></div></section>';
+    VG.state(document.getElementById('state'), VG.kindOf(err), 'The graph is not reachable.', VG.explain(err), main);
+    return;
+  }
   const s = data.summary, scan = data.scan || {};
   app.innerHTML = '';
   document.getElementById('share').onclick = e => VG.copy(shareText(s), e.target);
@@ -34,23 +42,23 @@ async function main() {
   if (!s.calls) {
     const found = Object.entries(scan.found || {}).map(([k, v]) => `${v} ${k} file(s)`).join(', ') || 'no session files';
     screen(`<div class="kicker">Reveal</div>
-      <p class="big">No agent history to reveal yet.</p>
+      <h1 class="big">No agent history to reveal yet.</h1>
       <p class="sub">Looked in ${(scan.dirs || []).map(d => `<span class="mono">${esc(d)}</span>`).join(', ') || 'the usual places'} and found ${esc(found)}${scan.skipped_before_window ? `; ${num(scan.skipped_before_window)} call(s) were older than the window` : ''}.</p>
       <p class="sub">Use Claude Code, Codex or Gemini CLI for a while, then run <span class="mono">vigil-cli reveal</span> again. Nothing was read beyond those directories.</p>`);
     return;
   }
 
   screen(`<div class="kicker">Your agent, ${day(s.from)} to ${day(s.to)}</div>
-    <p class="big">Your agent made <span class="n">${num(s.calls)}</span> tool calls across <span class="n">${num(s.sessions)}</span> sessions.</p>
+    <h1 class="big">Your agent made <span class="n">${num(s.calls)}</span> tool calls across <span class="n">${num(s.sessions)}</span> sessions.</h1>
     <p class="sub">${num(s.agents)} agent(s). Every call was replayed through VIGIL in the order it happened, against a graph built from this history alone.</p>`);
 
   const p = data.path;
   if (p) {
     const sc = screen(`<div class="kicker">What VIGIL would have done differently</div>
-      <p class="big"><span class="n verdict">${num(s.blocked)}</span> would have been blocked. Here's the one that mattered.</p>
+      <h2 class="big"><span class="n verdict">${num(s.blocked)}</span> would have been blocked. Here's the one that mattered.</h2>
       <p class="sub">${num(s.paused)} more would have asked you first (Claude Code's normal prompt) because content from outside reached a shell${s.redacted ? `, and ${num(s.redacted)} would have run with an argument redacted` : ''}. These are VIGIL's verdicts on your history, not proven incidents: judge each one.</p>
-      <p class="sub">${esc(p.decision.verdict)} · ${esc(p.decision.stage)} · ${when(p.decision.ts)}</p>
-      <div class="vg-box"><svg class="dag" id="path"></svg></div>
+      <p class="sub">${VG.badge(VG.verdict(p.decision.verdict, p.decision.stage))} · ${esc(p.decision.stage)} · ${when(p.decision.ts)}</p>
+      <div class="vg-box"><svg class="dag" id="path" role="group" aria-label="The graph path behind this decision"></svg></div>
       <div class="why">${esc(p.why.sentence || p.decision.reason)}</div>
       <div class="ends">
         ${p.cause ? `<div class="end"><b>Earlier · session ${esc(short(p.cause.session))}</b><div class="mono">${esc(p.cause.label || p.cause.tool)}</div><div class="sub">${when(p.cause.ts)}</div></div>` : ''}
@@ -59,34 +67,35 @@ async function main() {
     const g = p.network && p.network.length ? VG.fromNetwork(p.network) : VG.fromPaths(p.decision.paths);
     if (!g.nodes.length) g.nodes.push({ id: 'd', label: p.decision.tool, kind: 'verdict' });
     const svg = sc.querySelector('#path');
+    VG.alt(svg, g, 'The path as a list');
     new IntersectionObserver((es, o) => { if (es[0].isIntersecting) { o.disconnect(); VG.dag(svg, g, { animate: true }); VG.controls(svg); } }, { threshold: .3 }).observe(svg);
   } else {
     screen(`<div class="kicker">What would have been stopped</div>
-      <p class="big">Nothing in this history would have been blocked.</p>
+      <h2 class="big">Nothing in this history would have been blocked.</h2>
       <p class="sub">${num(s.paused)} call(s) would have asked you first. No secret crossed into an outbound call, no known typosquat was installed, no tool changed under the agent. That is a real result, not an empty one.</p>`);
   }
 
   const auto = s.auto_approved || [];
   screen(`<div class="kicker">Autonomy</div>
-    <p class="big">Your autonomy level if you had been running VIGIL: <span class="n verdict">${s.autonomy_level}%</span>.</p>
+    <h2 class="big">Your autonomy level if you had been running VIGIL: <span class="n accent">${s.autonomy_level}%</span>.</h2>
     <p class="sub">${num(s.autonomous)} of ${num(s.calls)} calls would have run without a permission prompt, each earned from ${s.trust_threshold} clean runs of the same tool and capability shape, by the same agent in the same repo, since its last incident.</p>
     ${auto.length ? `<p class="sub">${num(auto.length)} call shape(s) would already be auto-approved:</p>
-    <table class="list"><tr><th>Tool</th><th>Capabilities</th><th>Repo</th><th>Clean runs</th></tr>
-    ${auto.slice(0, 12).map(a => `<tr><td class="v mono">${esc(a.tool)}</td><td>${esc(a.capabilities || '—')}</td><td class="mono">${esc(a.repo || '')}</td><td class="v">${num(a.clean_since_last_incident)}</td></tr>`).join('')}</table>
+    <div class="table-wrap"><table class="list">${th(['Tool', 'Capabilities', 'Repo', 'Clean runs'])}<tbody>
+    ${auto.slice(0, 12).map(a => `<tr><td class="v mono">${esc(a.tool)}</td><td>${esc(a.capabilities || '—')}</td><td class="mono">${esc(a.repo || '')}</td><td class="v">${num(a.clean_since_last_incident)}</td></tr>`).join('')}</tbody></table></div>
     ${auto.length > 12 ? `<p class="sub">…and ${num(auto.length - 12)} more.</p>` : ''}` : '<p class="sub">No call shape reached the threshold.</p>'}`);
 
   const sp = s.spend || {};
   screen(`<div class="kicker">Repeated calls</div>
     ${sp.available
-      ? `<p class="big">Estimated spend on repeated identical calls: <span class="n verdict">$${Number(sp.estimate_usd).toFixed(2)}</span>.</p>
+      ? `<h2 class="big">Estimated spend on repeated identical calls: <span class="n accent">$${Number(sp.estimate_usd).toFixed(2)}</span>.</h2>
          <p class="sub">${num(sp.repeated_calls)} call(s) exactly repeated the call before them. Estimate: ${esc(sp.method)}. ${num(sp.sessions_with_cost)} of ${num(sp.sessions)} sessions recorded a cost ($${Number(sp.recorded_cost_usd).toFixed(2)} in total); the rest are left out.</p>`
-      : `<p class="big">Repeated-call spend: not available.</p><p class="sub">${num(sp.repeated_calls)} call(s) exactly repeated the call before them, but no session in this window recorded its cost.</p>`}`, 'short');
+      : `<h2 class="big">Repeated-call spend: not available.</h2><p class="sub">${num(sp.repeated_calls)} call(s) exactly repeated the call before them, but no session in this window recorded its cost.</p>`}`, 'short');
 
   if ((s.stages || []).length) {
     screen(`<div class="kicker">Everything VIGIL would have done</div>
-      <p class="big">${num(s.blocked + s.paused + s.redacted)} decisions would have differed from what happened.</p>
-      <table class="list"><tr><th>Verdict</th><th>Stage</th><th>Calls</th></tr>
-      ${s.stages.map(x => `<tr><td class="v">${esc(x.verdict)}</td><td>${esc(x.stage)}</td><td class="v">${num(x.count)}</td></tr>`).join('')}</table>
+      <h2 class="big">${num(s.blocked + s.paused + s.redacted)} decisions would have differed from what happened.</h2>
+      <div class="table-wrap"><table class="list">${th(['Verdict', 'Stage', 'Calls'])}<tbody>
+      ${s.stages.map(x => `<tr><td class="v">${VG.badge(VG.verdict(x.verdict, x.stage))}</td><td>${esc(x.stage)}</td><td class="v">${num(x.count)}</td></tr>`).join('')}</tbody></table></div>
       ${(data.risk || []).length ? `<p class="sub" style="margin-top:18px">Agent Risk Score: ${data.risk.map(r => `${esc(r.scope === '*' ? 'all agents' : r.scope)} ${r.score}`).join(' · ')} (0 to 100, from the graph).</p>` : ''}`, 'short');
   }
 }

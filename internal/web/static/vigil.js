@@ -41,6 +41,8 @@
   function dag(svg, g, opts) {
     opts = opts || {};
     svg.innerHTML = '';
+    // The nodes are reachable by keyboard and read out, so the drawing must not be a flat image to assistive tech.
+    if (svg.getAttribute('role') === 'img') svg.setAttribute('role', 'group');
     if (!g.nodes.length) return Promise.resolve();
     const { layer, cols } = layout(g);
     const ncol = Object.keys(cols).length;
@@ -48,6 +50,9 @@
     const W = Math.max(640, ncol * 240), H = Math.max(150, maxRows * 80 + 30);
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.style.maxWidth = W + 'px'; // never drawn larger than life: a small graph stays small
+    // ...and never so small that labels become unreadable: below this the frame
+    // scrolls sideways instead of shrinking the text (smallest label >= 10px).
+    svg.style.minWidth = Math.round(W * 0.92) + 'px';
     const pos = {};
     Object.entries(cols).forEach(([c, list]) => {
       list.forEach((id, i) => {
@@ -82,7 +87,7 @@
     const nodeEls = {};
     g.nodes.forEach(n => {
       const p = pos[n.id];
-      const grp = el('g', { class: 'node hidden ' + (n.kind || ''), transform: `translate(${p.x},${p.y})` }, svg);
+      const grp = el('g', { class: 'node hidden ' + (n.kind || ''), transform: `translate(${p.x},${p.y})`, tabindex: 0, role: 'img', 'aria-label': describeNode(g, n) }, svg);
       el('rect', { x: -84, y: -24, width: 168, height: 48, rx: 8 }, grp);
       const t = el('text', { y: n.sub ? -4 : 5, class: 'nlabel' }, grp);
       t.textContent = clip(n.label, 21);
@@ -140,12 +145,13 @@
       ids.forEach(id => nodeEls[id] && nodeEls[id].classList.add('hl'));
       es.forEach(x => x.grp.classList.add('hl'));
     };
+    // The tip is fixed to the viewport, so a scrolling or clipped frame never cuts it off.
     const place = (ev, html) => {
-      const r = host.getBoundingClientRect();
       tip.innerHTML = html; tip.classList.add('on');
-      tip.style.left = (ev.clientX - r.left + host.scrollLeft) + 'px';
-      tip.style.top = (ev.clientY - r.top + host.scrollTop) + 'px';
-      tip.classList.toggle('below', ev.clientY - r.top < 110); // near the top edge, show it under the pointer
+      const half = Math.min(170, innerWidth / 2 - 8);
+      tip.style.left = Math.min(Math.max(ev.clientX, half + 8), innerWidth - half - 8) + 'px';
+      tip.style.top = ev.clientY + 'px';
+      tip.classList.toggle('below', ev.clientY < 110); // near the top of the window, show it under the pointer
     };
     Object.entries(nodeEls).forEach(([id, node]) => {
       const n = byId[id];
@@ -155,6 +161,14 @@
       });
       node.addEventListener('mousemove', ev => place(ev, `<b>${esc(n.label)}</b>${n.sub ? '<br>' + esc(n.sub) : ''}`));
       node.addEventListener('mouseleave', clear);
+      // Keyboard: focusing a node does what hovering does, with the tip above the box.
+      node.addEventListener('focus', () => {
+        const es = edges.filter(x => x.e.from === id || x.e.to === id);
+        light([id, ...es.map(x => x.e.from), ...es.map(x => x.e.to)], es);
+        const r = node.getBoundingClientRect();
+        place({ clientX: r.left + r.width / 2, clientY: r.top }, `<b>${esc(n.label)}</b>${n.sub ? '<br>' + esc(n.sub) : ''}`);
+      });
+      node.addEventListener('blur', clear);
     });
     edges.forEach(x => {
       x.grp.addEventListener('mouseenter', () => light([x.e.from, x.e.to], [x]));
@@ -172,29 +186,34 @@
 
   // Zoom and pan by rewriting the viewBox: buttons, Ctrl or Cmd + wheel at the
   // pointer, drag to pan, double-click to zoom in. Returns {in, out, fit}.
+  // Listeners are attached once per svg; calling it again (after the next dag()
+  // redraw) only re-reads the drawing's size, so redraws never stack handlers.
   function zoomable(svg) {
     const vb = svg.viewBox.baseVal, base = { x: 0, y: 0, w: vb.width, h: vb.height };
-    let v = { ...base };
-    const set = () => { svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`); svg.classList.toggle('zoomed', v.w < base.w - 0.5); };
+    if (svg._vz) { svg._vz.reset(base); return svg._vz.api; }
+    const st = { base, v: { ...base }, drag: null };
+    const set = () => { const v = st.v; svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`); svg.classList.toggle('zoomed', v.w < st.base.w - 0.5); };
     // Panning may run half a frame past the drawing, as in a map; never further.
-    const keep = () => { v.x = Math.min(Math.max(v.x, -base.w / 2), base.w - v.w / 2); v.y = Math.min(Math.max(v.y, -base.h / 2), base.h - v.h / 2); };
+    const keep = () => { const v = st.v, b = st.base; v.x = Math.min(Math.max(v.x, -b.w / 2), b.w - v.w / 2); v.y = Math.min(Math.max(v.y, -b.h / 2), b.h - v.h / 2); };
     const zoom = (f, cx, cy) => {
+      const v = st.v, b = st.base;
       cx = cx ?? v.x + v.w / 2; cy = cy ?? v.y + v.h / 2;
-      const w = Math.min(base.w, Math.max(base.w / 6, v.w * f)), h = w * base.h / base.w;
-      v = { x: cx - (cx - v.x) * (w / v.w), y: cy - (cy - v.y) * (h / v.h), w, h }; keep(); set();
+      const w = Math.min(b.w, Math.max(b.w / 6, v.w * f)), h = w * b.h / b.w;
+      st.v = { x: cx - (cx - v.x) * (w / v.w), y: cy - (cy - v.y) * (h / v.h), w, h }; keep(); set();
     };
     const at = ev => { const p = svg.createSVGPoint(); p.x = ev.clientX; p.y = ev.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); };
     svg.addEventListener('wheel', ev => { if (!ev.ctrlKey && !ev.metaKey) return; ev.preventDefault(); const p = at(ev); zoom(ev.deltaY > 0 ? 1.15 : 1 / 1.15, p.x, p.y); }, { passive: false });
     svg.addEventListener('dblclick', ev => { const p = at(ev); zoom(1 / 1.6, p.x, p.y); });
-    let drag = null;
-    svg.addEventListener('pointerdown', ev => { if (ev.button !== 0 || ev.target.closest('.node')) return; drag = { x: ev.clientX, y: ev.clientY, v: { ...v } }; svg.setPointerCapture(ev.pointerId); svg.classList.add('dragging'); });
-    svg.addEventListener('pointermove', ev => { if (!drag) return; const s = v.w / svg.clientWidth; v.x = drag.v.x - (ev.clientX - drag.x) * s; v.y = drag.v.y - (ev.clientY - drag.y) * s; keep(); set(); });
-    const up = () => { drag = null; svg.classList.remove('dragging'); };
+    svg.addEventListener('pointerdown', ev => { if (ev.button !== 0 || ev.target.closest('.node')) return; st.drag = { x: ev.clientX, y: ev.clientY, v: { ...st.v } }; svg.setPointerCapture(ev.pointerId); svg.classList.add('dragging'); });
+    svg.addEventListener('pointermove', ev => { const d = st.drag; if (!d) return; const s = st.v.w / svg.clientWidth; st.v.x = d.v.x - (ev.clientX - d.x) * s; st.v.y = d.v.y - (ev.clientY - d.y) * s; keep(); set(); });
+    const up = () => { st.drag = null; svg.classList.remove('dragging'); };
     svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
-    return {
-      in: () => zoom(1 / 1.35), out: () => zoom(1.35), fit: () => { v = { ...base }; set(); },
-      pan: (fx, fy) => { v.x += fx * v.w; v.y += fy * v.h; keep(); set(); },
+    const api = {
+      in: () => zoom(1 / 1.35), out: () => zoom(1.35), fit: () => { st.v = { ...st.base }; set(); },
+      pan: (fx, fy) => { st.v.x += fx * st.v.w; st.v.y += fy * st.v.h; keep(); set(); },
     };
+    svg._vz = { api, reset: b => { st.base = b; st.v = { ...b }; st.drag = null; svg.classList.remove('zoomed', 'dragging'); } };
+    return api;
   }
 
   const ICON = {
@@ -211,8 +230,9 @@
     if (e.key === 'Escape') document.querySelectorAll('.vg-full').forEach(h => h.querySelector('.vg-expand')?.click());
   });
 
-  // The graph frame's controls, as on GitHub's diagrams: full screen at the top
-  // right; pan, reset and zoom at the bottom right. Call after each dag().
+  // The graph frame's controls: one toolbar in a strip below the drawing, so it
+  // never covers a node. Safe to call after every dag(): the toolbar is rebuilt
+  // and the zoom listeners are not duplicated.
   function controls(svg) {
     const host = svg.parentElement;
     host.classList.add('vg-frame');
@@ -231,16 +251,26 @@
       document.documentElement.classList.toggle('vg-lock', on);
       expand.innerHTML = icon(on ? 'close' : 'expand');
       expand.title = on ? 'Close full screen' : 'Full screen'; expand.setAttribute('aria-label', expand.title);
+      expand.setAttribute('aria-pressed', String(on));
       z.fit();
+      if (on) expand.focus();
     }, 'vg-expand');
-    const top = document.createElement('div'); top.className = 'vg-ctl vg-top'; top.append(expand);
-    const pad = document.createElement('div'); pad.className = 'vg-ctl vg-pad';
-    pad.append(
-      btn('up', 'Pan up', () => z.pan(0, -0.2), 'p-up'), btn('zin', 'Zoom in', z.in, 'p-zin'),
-      btn('left', 'Pan left', () => z.pan(-0.2, 0), 'p-left'), btn('reset', 'Reset view', z.fit, 'p-reset'), btn('right', 'Pan right', () => z.pan(0.2, 0), 'p-right'),
-      btn('down', 'Pan down', () => z.pan(0, 0.2), 'p-down'), btn('zout', 'Zoom out', z.out, 'p-zout'),
+    expand.setAttribute('aria-pressed', String(full()));
+    const bar = document.createElement('div'); bar.className = 'vg-ctl vg-bar'; bar.setAttribute('role', 'toolbar'); bar.setAttribute('aria-label', 'Graph view');
+    const sep = document.createElement('span'); sep.className = 'vg-sep'; sep.setAttribute('aria-hidden', 'true');
+    bar.append(
+      btn('zout', 'Zoom out', z.out), btn('zin', 'Zoom in', z.in), btn('reset', 'Reset view', z.fit),
+      btn('left', 'Pan left', () => z.pan(-0.2, 0)), btn('up', 'Pan up', () => z.pan(0, -0.2)),
+      btn('down', 'Pan down', () => z.pan(0, 0.2)), btn('right', 'Pan right', () => z.pan(0.2, 0)),
+      sep, expand,
     );
-    host.append(top, pad);
+    host.append(bar);
+    // A graph wider than its frame scrolls sideways; bring the decision into view rather than leave it off the edge.
+    const v = svg.querySelector('.node.verdict');
+    if (v && host.scrollWidth > host.clientWidth + 1) {
+      const hr = host.getBoundingClientRect(), r = v.getBoundingClientRect();
+      if (r.right > hr.right) host.scrollLeft += r.right - hr.right + 24;
+    }
     return z;
   }
 
@@ -278,10 +308,20 @@
   const when = ns => ns ? new Date(ns / 1e6).toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : '';
   const day = ns => ns ? new Date(ns / 1e6).toISOString().slice(0, 10) : '';
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  // Throws an Error with .status and .kind (network | sleeping | rate_limited |
+  // unavailable | http | parse), so a page can say what actually happened.
   async function getJSON(url, init) {
-    const r = await fetch(url, Object.assign({ cache: 'no-store' }, init || {}));
-    const body = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(body.error || ('HTTP ' + r.status));
+    const fail = (kind, msg, status) => Object.assign(new Error(msg), { kind, status: status || 0 });
+    let r;
+    try { r = await fetch(url, Object.assign({ cache: 'no-store' }, init || {})); }
+    catch (_) { throw fail('network', 'The server could not be reached.'); }
+    const text = await r.text();
+    let body; try { body = text ? JSON.parse(text) : {}; } catch (_) { body = undefined; }
+    if (!r.ok) {
+      const kind = r.status === 429 ? 'rate_limited' : [502, 503, 504].includes(r.status) && body === undefined ? 'sleeping' : r.status === 503 ? 'unavailable' : 'http';
+      throw fail(kind, (body && body.error) || ('HTTP ' + r.status), r.status);
+    }
+    if (body === undefined) throw fail('parse', 'The server sent a response this page could not read.', r.status);
     return body;
   }
   function copy(text, btn) {
@@ -292,5 +332,71 @@
     });
   }
 
-  window.VG = { dag, zoomable, controls, focus, fromNetwork, fromPaths, num, when, day, esc, getJSON, copy, clip };
+  // One sentence per node for screen readers: what it is and what it connects to.
+  function describeNode(g, n) {
+    const lbl = id => (g.nodes.find(x => x.id === id) || { label: id }).label;
+    const out = g.edges.filter(e => e.from === n.id).map(e => `${e.cut ? 'cut edge ' : ''}${e.label || 'to'} ${lbl(e.to)}`);
+    const inn = g.edges.filter(e => e.to === n.id).map(e => `${e.cut ? 'cut edge ' : ''}${e.label || 'from'} from ${lbl(e.from)}`);
+    return [n.label, n.sub, n.kind === 'verdict' ? 'the decision' : '', inn.length ? 'in: ' + inn.join('; ') : '', out.length ? 'out: ' + out.join('; ') : ''].filter(Boolean).join('. ');
+  }
+
+  // A graph as a list of its relationships, in a <details> after the drawing:
+  // the same facts without hover, zoom or sight. Replaces any earlier one.
+  function alt(svg, g, title) {
+    const host = svg.closest('.vg-box, .graph') || svg.parentElement;
+    let d = host.nextElementSibling && host.nextElementSibling.classList.contains('vg-alt') ? host.nextElementSibling : null;
+    if (!g.edges.length && !g.nodes.length) { if (d) d.remove(); return; }
+    if (!d) { d = document.createElement('details'); d.className = 'vg-alt'; host.after(d); }
+    const lbl = id => esc((g.nodes.find(x => x.id === id) || { label: id }).label);
+    const rows = g.edges.length
+      ? g.edges.map(e => `<li>${lbl(e.from)} → ${lbl(e.to)}${e.label ? ` <span class="mono">(${esc(e.label)})</span>` : ''}${e.cut ? ' <span class="cut">✂ the min cut severs this edge</span>' : ''}</li>`).join('')
+      : g.nodes.map(n => `<li>${esc(n.label)}${n.sub ? ' · ' + esc(n.sub) : ''}</li>`).join('');
+    const open = d.open;
+    d.innerHTML = `<summary>${esc(title || 'The graph as a list')} (${g.edges.length || g.nodes.length})</summary><ol>${rows}</ol>`;
+    d.open = open;
+  }
+
+  // The backend's verdicts, mapped as the dashboard maps them (lib/verdict.ts).
+  const VERDICT = {
+    allowed: ['Allowed', '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>'],
+    rewritten: ['Rewritten', '<circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/>'],
+    paused: ['Paused', '<circle cx="12" cy="12" r="10"/><path d="M10 15V9M14 15V9"/>'],
+    blocked: ['Blocked', '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>'],
+    critical: ['Critical', '<path d="M7.86 2h8.28L22 7.86v8.28L16.14 22H7.86L2 16.14V7.86z"/><path d="M12 8v4M12 16h.01"/>'],
+  };
+  function verdict(decision, stage, unsafe) {
+    if (unsafe) return 'critical'; // the attack reached an unsafe effect
+    const d = String(decision || '').toUpperCase();
+    if (d === 'BLOCK' || d === 'DENY') return 'blocked';
+    if (d === 'PAUSE' || d === 'ASK') return 'paused';
+    if (stage === 'redact' || d === 'REWRITE' || d === 'REDACT') return 'rewritten';
+    return 'allowed';
+  }
+  const label = v => (VERDICT[v] || VERDICT.allowed)[0];
+  function badge(v, opts) {
+    opts = opts || {};
+    const [word, path] = VERDICT[v] || VERDICT.allowed;
+    return `<span class="v-badge v-${VERDICT[v] ? v : 'allowed'}${opts.solid ? ' v-solid' : ''}${opts.large ? ' v-lg' : ''}"${opts.title ? ` title="${esc(opts.title)}"` : ''}>` +
+      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>${word}</span>`;
+  }
+
+  // What a failed getJSON means, in words a visitor can act on.
+  function explain(err) {
+    const k = err && err.kind;
+    if (k === 'network' || k === 'sleeping') return 'The server is not answering yet. Free hosting sleeps when idle and takes up to a minute to wake.';
+    if (k === 'rate_limited') return 'Too many attempts from your address. Wait a minute and try again.';
+    if (k === 'unavailable') return 'The server is up, but its graph database is not reachable right now.';
+    if (err && err.status === 404) return 'This server does not offer this (the playground and the time-travel pages run on different server modes).';
+    return (err && err.message) || 'Something went wrong.';
+  }
+  // An honest state panel in el: kind is loading | empty | sleeping | error.
+  // retry (optional) adds a working "Try again" button.
+  function state(el, kind, title, body, retry) {
+    el.innerHTML = `<div class="vg-state ${kind}" role="${kind === 'error' || kind === 'sleeping' ? 'alert' : 'status'}"${kind === 'loading' ? ' aria-busy="true"' : ''}>` +
+      `<b>${esc(title)}</b>${body ? `<span>${esc(body)}</span>` : ''}${retry ? '<button type="button" class="vg-retry">Try again</button>' : ''}</div>`;
+    if (retry) el.querySelector('.vg-retry').onclick = retry;
+  }
+  const kindOf = err => err && (err.kind === 'network' || err.kind === 'sleeping') ? 'sleeping' : 'error';
+
+  window.VG = { dag, zoomable, controls, focus, fromNetwork, fromPaths, num, when, day, esc, getJSON, copy, clip, alt, verdict, label, badge, explain, state, kindOf };
 })();

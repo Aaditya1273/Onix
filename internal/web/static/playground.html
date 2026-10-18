@@ -14,7 +14,7 @@
   .score { display: grid; grid-template-columns: auto auto; column-gap: 14px; row-gap: 6px; align-items: baseline; min-width: 250px; }
   .score b { font: 700 40px/1 "Epilogue", sans-serif; letter-spacing: -0.03em; text-align: right; font-variant-numeric: tabular-nums; }
   .score span { color: var(--dim); font-size: 15px; }
-  #s-new { color: var(--verdict); }
+  #s-new { color: var(--accent-text); }
 
 
   .attacks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -22,10 +22,10 @@
   .attack { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 16px;
             background: #fff; border: 1.5px solid var(--line); border-radius: 10px; min-height: 64px; transition: border-color .15s, transform .15s; }
   .attack:hover { border-color: var(--text); transform: translateY(-2px); }
-  .attack:focus-visible { outline: 3px solid var(--verdict); outline-offset: 2px; }
+  .attack:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
   .attack.on { background: var(--text); border-color: var(--text); color: var(--bg); }
   .attack { position: relative; overflow: hidden; }
-  .attack .go { margin-left: auto; flex-shrink: 0; font-size: 12.5px; font-weight: 600; color: var(--verdict); opacity: 0; transform: translateY(4px); transition: opacity .15s, transform .15s; }
+  .attack .go { margin-left: auto; flex-shrink: 0; font-size: 12.5px; font-weight: 600; color: var(--accent-text); opacity: 0; transform: translateY(4px); transition: opacity .15s, transform .15s; }
   .attack:hover .go, .attack:focus-visible .go { opacity: 1; transform: none; }
   /* The description, on hover or keyboard focus; always shown where there is no hover. */
   .desc { position: absolute; left: 0; right: 0; top: 100%; z-index: 20; margin: 8px 0 0; padding: 12px 16px; border-radius: 10px;
@@ -50,11 +50,12 @@
   .tries { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; color: var(--dim); font-size: 14px; }
   .try { all: unset; cursor: pointer; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 5px 10px; border-radius: 6px; background: #fff; border: 1px solid var(--line); color: var(--text); }
   .try:hover { border-color: var(--text); }
-  .try:focus-visible { outline: 3px solid var(--verdict); }
-  .world { margin-top: 14px; color: var(--faint); font-size: 13px; }
-  .world code { font: 12.5px ui-monospace, monospace; color: var(--dim); }
+  .try:focus-visible { outline: 3px solid var(--focus); }
+  .world { margin-top: 14px; color: var(--muted); font-size: 13px; }
+  .world code { font: 12.5px ui-monospace, monospace; color: var(--dim); overflow-wrap: anywhere; }
 
-  .empty { border: 1.5px dashed var(--line); border-radius: 12px; padding: 48px 24px; text-align: center; color: var(--faint); font-size: 16px; }
+  .empty { border: 1.5px dashed var(--line); border-radius: 12px; padding: 48px 24px; text-align: center; color: var(--muted); font-size: 16px; }
+  .attacks > .vg-state { grid-column: 1 / -1; }
   /* The verdict is one card: the word, what it means, and the counterfactual, read together. */
   .verdict-row { position: relative; z-index: 5; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 18px; }
   /* The full explanation sits behind an (i): on hover or keyboard focus, with a copy button. */
@@ -71,14 +72,10 @@
   .info-copy { margin-top: 10px; display: inline-block; padding: 5px 10px; border-radius: 6px; background: transparent; color: #fff;
                border: 1px solid rgba(255, 255, 255, .25); font: 600 12px "DM Sans", sans-serif; cursor: pointer; }
   .info-copy:hover { background: rgba(255, 255, 255, .1); }
-  .stamp { font: 800 15px/1 "Epilogue", sans-serif; letter-spacing: 0; padding: 6px 10px 5px; border-radius: 6px;
-           border: 2.5px solid var(--text); color: var(--text); }
-  .stamp.stop { background: var(--verdict); border-color: var(--verdict); color: #fff; }
-  .stamp.bad { background: var(--cut); border-color: var(--cut); color: #fff; }
   .what { font: 700 17px/1.3 "Epilogue", sans-serif; letter-spacing: -0.01em; margin: 0; }
   .reason { font-size: 17px; line-height: 1.55; max-width: 72ch; margin: 0 0 22px; }
   .toggle { display: inline-flex; gap: 10px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin: 0 0 20px; cursor: pointer; font-size: 14px; }
-  .toggle input { accent-color: var(--verdict); width: 16px; height: 16px; }
+  .toggle input { accent-color: var(--action); width: 16px; height: 16px; }
   .graph { position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 8px 16px; margin-bottom: 8px; touch-action: pan-y; }
   .loading { display: flex; align-items: center; gap: 12px; padding: 40px 0; color: var(--dim); font-size: 16px; }
   .loading i { width: 10px; height: 10px; border-radius: 50%; background: var(--verdict); animation: pg-dot 1s ease-in-out infinite; }
@@ -86,7 +83,7 @@
   @keyframes pg-dot { 50% { transform: scale(.4); opacity: .4; } }
   /* The decision lands last: steps stream in, the path draws, then the verdict. */
   .wait { opacity: 0; }
-  .stamp.land { animation: pg-land .45s cubic-bezier(.2, 1.4, .4, 1) both; }
+  .v-badge.land { animation: pg-land .45s cubic-bezier(.2, 1.4, .4, 1) both; }
   @keyframes pg-land { from { opacity: 0; transform: scale(1.35) rotate(-3deg); } to { opacity: 1; transform: none; } }
   .fade { animation: pg-fade .35s ease both; }
   .step.fade { animation: pg-in .3s ease both; }
@@ -97,16 +94,19 @@
   table.feed tr.fresh td { animation: pg-fresh 2.4s ease; }
   @keyframes pg-fresh { from { background: #ffe2cc; } to { background: transparent; } }
   .graph svg.dag { margin: 8px 0; }
-  .cap { color: var(--faint); font-size: 13px; margin: 0 0 28px; }
+  .cap { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+  .graph + .vg-alt + .cap, .graph + .cap { margin-bottom: 28px; }
   h4 { font: 600 16px "DM Sans", sans-serif; margin: 0 0 8px; }
   .step { display: grid; grid-template-columns: 84px 1fr auto; gap: 14px; padding: 14px 8px; border-top: 1px solid var(--line); align-items: baseline; }
-  .who { font-size: 13px; font-weight: 600; color: var(--faint); white-space: nowrap; }
+  .who { font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; }
   .step .cmd { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
   .step .out { color: var(--dim); font-size: 13.5px; white-space: pre-wrap; margin-top: 4px; overflow-wrap: anywhere; }
 
   table.feed { width: 100%; border-collapse: collapse; font-size: 14px; }
   table.feed td { padding: 10px 8px; border-top: 1px solid var(--line); vertical-align: top; }
-  table.feed td:first-child { color: var(--faint); white-space: nowrap; width: 1%; }
+  table.feed th { padding: 6px 8px; text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  table.feed td:first-child { color: var(--muted); white-space: nowrap; width: 1%; }
+  table.feed td.note { color: var(--dim); }
   table.feed td.in { font: 13px ui-monospace, monospace; overflow-wrap: anywhere; }
   table.feed td.vd { white-space: nowrap; width: 1%; }
   .error { margin: 10px 0 0; }
@@ -119,14 +119,15 @@
   @media (max-width: 560px) {
     .attacks { grid-template-columns: 1fr; }
     .attack { min-height: 0; }
-    header.top nav a.quiet, .mark small { display: none; }
-    header.top .btn { font-size: 14px; white-space: nowrap; }
     .ask { flex-direction: column; }
     .ask button { padding: 12px; }
     .step { grid-template-columns: 1fr; gap: 6px; }
-    .step .tag { justify-self: start; }
+    .step .v-badge { justify-self: start; }
+    /* The explanation opens across the verdict row, not off the side of the screen. */
+    .info { position: static; }
+    .info-pop { left: 0; right: 0; width: auto; transform: none; }
   }
-  @media (prefers-reduced-motion: reduce) { .attack, .attack .go { transition: none; } .attack:hover { transform: none; } .stamp.land, .fade, .step.fade, .attack.running::after, .loading i, table.feed tr.fresh td { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .attack, .attack .go { transition: none; } .attack:hover { transform: none; } .v-badge.land, .fade, .step.fade, .attack.running::after, .loading i, table.feed tr.fresh td { animation: none; } }
 </style>
 </head>
 <body>
@@ -154,7 +155,7 @@
   <section class="block">
     <h2>Pick an attack</h2>
     <p class="hint">Each one plays out a short agent session, then makes the risky move.</p>
-    <div class="attacks" id="attacks"></div>
+    <div class="attacks" id="attacks" aria-live="polite"></div>
     <div class="own">
       <h3>Or write the agent's next move yourself</h3>
       <form class="ask" id="ask">
@@ -176,7 +177,7 @@
   <section class="block">
     <h2>Recent attempts</h2>
     <p class="hint">From everyone. Inputs are stripped of anything that looks like a secret; no visitor identity is stored.</p>
-    <table class="feed" id="feed"></table>
+    <table class="feed"><thead><tr><th scope="col">Time</th><th scope="col">Attempt</th><th scope="col">Verdict</th></tr></thead><tbody id="feed"></tbody></table>
   </section>
 </main>
 
@@ -195,7 +196,7 @@ if (!/^[0-9a-f]{16,32}$/.test(world || '')) {
   world = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');
   try { localStorage.setItem('vigil-world', world); } catch (_) {}
 }
-const KEY = 'sk_live_pg' + world;
+const KEY = 'vigil_demo_canary_' + world;
 $('key').textContent = 'STRIPE_KEY=' + KEY;
 let scenarios = [], current = '', last = null, busy = false;
 
@@ -216,18 +217,20 @@ async function stats() {
     const d = await VG.getJSON('/api/v1/playground/stats'), s = d.stats;
     countTo($('s-attempts'), s.attempts);
     countTo($('s-through'), s.reached_unsafe_effect);
-    $('s-through').style.color = s.reached_unsafe_effect > 0 ? 'var(--cut)' : '';
+    $('s-through').style.color = s.reached_unsafe_effect > 0 ? 'var(--v-critical)' : '';
     countTo($('s-new'), s.new_signals);
+    $('score').removeAttribute('title');
     $('feed').innerHTML = (d.feed || []).slice(0, 12).map(a => {
-      const stop = a.verdict !== 'ALLOW' || a.stage === 'redact';
       const fresh = seen.size && !seen.has(a.ts); seen.add(a.ts);
       return `<tr class="${fresh ? 'fresh' : ''}"><td>${new Date(a.ts / 1e6).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td><td class="in">${esc(a.input || a.scenario)}</td>
-        <td class="vd"><span class="tag ${a.unsafe ? 'bad' : stop ? 'stop' : ''}">${esc(word(a.verdict, a.stage))}</span></td></tr>`;
-    }).join('') || '<tr><td></td><td>No attempts yet. Be the first.</td><td></td></tr>';
+        <td class="vd">${VG.badge(VG.verdict(a.verdict, a.stage, a.unsafe))}</td></tr>`;
+    }).join('') || '<tr><td></td><td class="note" colspan="2">No attempts yet. Be the first.</td></tr>';
     (d.feed || []).forEach(a => seen.add(a.ts));
   } catch (e) {
-    $('s-attempts').textContent = '–';
-    $('feed').innerHTML = '<tr><td></td><td>The sandbox is waking up (free hosting sleeps when idle). Try again in a minute.</td><td></td></tr>';
+    // Unknown is not zero: the numbers go blank and say why, and the next poll (every 15 s) tries again.
+    ['s-attempts', 's-through', 's-new'].forEach(id => { $(id).textContent = '—'; delete $(id).dataset.n; });
+    $('score').title = VG.explain(e);
+    $('feed').innerHTML = `<tr><td></td><td class="note" colspan="2">Could not load recent attempts. ${esc(VG.explain(e))} This list refreshes on its own every 15 seconds.</td></tr>`;
   }
 }
 
@@ -240,7 +243,6 @@ function countTo(el, to) {
   const f = t => { const k = Math.min(1, (t - t0) / dur); el.textContent = num(Math.round(from + (to - from) * (1 - Math.pow(1 - k, 3)))); if (k < 1) requestAnimationFrame(f); };
   requestAnimationFrame(f);
 }
-const word = (v, stage) => v === 'BLOCK' ? 'Blocked' : v === 'PAUSE' ? 'Paused' : stage === 'redact' ? 'Rewritten' : 'Allowed';
 
 function pick(id) {
   current = id;
@@ -261,27 +263,32 @@ async function run(opts) {
     $('result').innerHTML = '<div class="loading"><i></i><i></i><i></i> Replaying the session against the graph…</div>';
     $('result-block').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
   }
+  let got = null;
   try {
-    last = await VG.getJSON('/api/v1/playground/attempt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    last.request = body;
+    got = await VG.getJSON('/api/v1/playground/attempt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    got.request = body;
+    last = got;
     stats();
-    await render(last, opts && opts.stay);
+    await render(got, opts && opts.stay);
   } catch (e) {
-    err.textContent = /429/.test(e.message) || /rate/i.test(e.message) ? 'Too many attempts from your address. Wait a minute and try again.' : e.message;
+    // Never a blank result and never a made-up verdict: say what failed and offer the same attempt again.
+    const kind = got ? 'error' : VG.kindOf(e);
+    const title = got ? 'The decision arrived, but this page could not draw it.' : kind === 'sleeping' ? 'The sandbox is waking up.' : e.kind === 'rate_limited' ? 'Slow down a little.' : 'The attempt did not complete.';
+    VG.state($('result'), kind, title, got ? (e.message || '') : VG.explain(e), () => { if (!input) pick(body.scenario); run({ before: body.before_fix }); });
   } finally { busy = false; $('go').textContent = 'Run'; $('go').disabled = false; document.querySelectorAll('.attack.running').forEach(c => c.classList.remove('running')); }
 }
 
 async function render(t, quick) {
   const steps = t.steps, d = steps[steps.length - 1];
-  const stopped = d.verdict !== 'ALLOW' || d.stage === 'redact';
+  const v = VG.verdict(d.verdict, d.stage, t.reached_unsafe_effect);
+  const stopped = v !== 'allowed';
   const s = scenarios.find(x => x.id === t.scenario);
   const [what, more] = STAGE[d.stage] || [d.stage, ''];
-  const stampWord = word(d.verdict, d.stage);
-  const tone = t.reached_unsafe_effect ? 'bad' : stopped ? 'stop' : '';
+  const stampWord = VG.label(VG.verdict(d.verdict, d.stage));
   $('decision-h').textContent = s ? `VIGIL's decision: ${s.title}` : "VIGIL's decision on your move";
   $('result').innerHTML = `
     <div class="verdict-row wait" id="vrow">
-      <div class="stamp ${tone}">${stampWord}</div>
+      ${VG.badge(v, { solid: v !== 'allowed', large: true })}
       <p class="what">${esc(t.reached_unsafe_effect ? 'It got through: ' + d.effect.why : what)}</p>
       <span class="info">
         <button type="button" class="info-btn" aria-label="Why this verdict" aria-describedby="why-pop">i</button>
@@ -293,13 +300,12 @@ async function render(t, quick) {
     </div>
     ${s && s.before_after ? `<label class="toggle"><input type="checkbox" id="before" ${t.before_fix ? 'checked' : ''}> Show the verdict from before we fixed this bug</label>` : ''}
     <div class="graph"><svg class="dag" id="sg" role="img" aria-label="The graph path behind this decision"></svg></div>
-    <p class="cap">${d.network && d.network.length ? 'The influence network FalkorDB cut with algo.maxFlow; the red edge is the cheapest cut.' : 'The graph path behind this decision.'} Decided in ${Number(d.graph_ms).toFixed(1)} ms of graph time. Hover anything to trace it; drag to pan, Ctrl + scroll to zoom, or open it full screen.</p>
+    <p class="cap">${d.network && d.network.length ? 'The influence network FalkorDB cut with algo.maxFlow; the red edge marked ✂ is the cheapest cut.' : 'The graph path behind this decision.'} Decided in ${Number(d.graph_ms).toFixed(1)} ms of graph time. Hover or Tab to any box to trace it; drag to pan, Ctrl + scroll to zoom, or open it full screen.</p>
     <h4>Step by step</h4>
     ${steps.map(x => {
-      const st = x.effect.unsafe ? 'bad' : (x.verdict !== 'ALLOW' || x.stage === 'redact') ? 'stop' : '';
       return `<div class="step wait" data-tool="${esc(x.tool)}" data-s="${esc(x.session.toUpperCase())}"><div class="who">Session ${esc(x.session.toUpperCase())}</div>
       <div><div class="cmd">${esc(x.label)}</div><div class="out">${esc(x.note)}${x.executed ? ' → ' + esc(x.effect.output) : ' → not run'}${x.effect.unsafe ? ' · ' + esc(x.effect.why) : ''}</div></div>
-      <span class="tag ${st}" title="${esc((STAGE[x.stage] || [x.stage])[0])}">${esc(word(x.verdict, x.stage))}</span></div>`;
+      ${VG.badge(VG.verdict(x.verdict, x.stage, x.effect.unsafe), { title: (STAGE[x.stage] || [x.stage])[0] })}</div>`;
     }).join('')}`;
   $('why-copy').onclick = e => VG.copy($('why-text').textContent, e.target);
   if ($('before')) $('before').onchange = e => run({ before: e.target.checked, stay: true });
@@ -326,9 +332,10 @@ async function render(t, quick) {
   for (const row of document.querySelectorAll('.step')) { reveal(row, 'fade'); await wait(170); }
   const drawn = VG.dag(svg, g, { animate: !quick, stepMs: 200 });
   VG.controls(svg);
+  VG.alt(svg, g, 'The path as a list');
   await drawn;
   reveal($('vrow'), 'fade');
-  if (!reduced && !quick) $('vrow').querySelector('.stamp').classList.add('land');
+  if (!reduced && !quick) $('vrow').querySelector('.v-badge').classList.add('land');
 }
 
 $('ask').onsubmit = e => { e.preventDefault(); pick(''); run(); };
@@ -350,15 +357,37 @@ $('share').onclick = e => {
   $('tries').appendChild(b);
 });
 
-(async () => {
-  try { scenarios = (await VG.getJSON('/api/v1/playground/scenarios')).scenarios; } catch (_) {}
-  $('attacks').innerHTML = scenarios.map(s => `<div class="attack-wrap"><button class="attack" type="button" data-id="${s.id}" aria-describedby="d-${s.id}"><h3>${esc(s.title)}</h3><span class="go">Run</span></button><p class="desc" id="d-${s.id}" role="tooltip">${esc(s.blurb)}</p></div>`).join('')
-    || '<div class="empty">The sandbox is waking up (free hosting sleeps when idle). Reload in a minute.</div>';
+// The scenarios load with a bounded retry: a sleeping free host answers after
+// up to a minute, and the attacks appear on their own once it does.
+const WAIT = [2, 4, 6, 10, 15, 20, 25]; // seconds between tries, about 80 s in all
+async function loadScenarios(n) {
+  n = n || 0;
+  if (!n) VG.state($('attacks'), 'loading', 'Loading the attacks…');
+  try {
+    scenarios = (await VG.getJSON('/api/v1/playground/scenarios')).scenarios || [];
+  } catch (e) {
+    if (n < WAIT.length && VG.kindOf(e) === 'sleeping') {
+      VG.state($('attacks'), 'sleeping', 'The sandbox is waking up.', `Free hosting sleeps when idle. Trying again in ${WAIT[n]} s (try ${n + 1} of ${WAIT.length}).`, () => { clearTimeout(loadScenarios.t); loadScenarios(n + 1); });
+      loadScenarios.t = setTimeout(() => loadScenarios(n + 1), WAIT[n] * 1000);
+    } else {
+      VG.state($('attacks'), VG.kindOf(e), 'The attacks could not be loaded.', VG.explain(e) + ' You can still write a move below.', () => loadScenarios(0));
+    }
+    return;
+  }
+  if (!scenarios.length) { VG.state($('attacks'), 'empty', 'No attacks are configured on this server.', 'You can still write a move below.'); return; }
+  $('attacks').innerHTML = scenarios.map(s => `<div class="attack-wrap"><button class="attack" type="button" data-id="${esc(s.id)}" aria-describedby="d-${esc(s.id)}"><h3>${esc(s.title)}</h3><span class="go">Run</span></button><p class="desc" id="d-${esc(s.id)}" role="tooltip">${esc(s.blurb)}</p></div>`).join('');
   document.querySelectorAll('.attack').forEach(p => (p.onclick = () => { $('input').value = ''; pick(p.dataset.id); run(); }));
+  if (current) pick(current); // keep the choice made before they loaded
+  const q = new URLSearchParams(location.search);
+  if (!last && !busy && q.get('s') && !q.get('q')) { pick(q.get('s')); run(); }
+}
+
+(() => {
   const q = new URLSearchParams(location.search);
   if (q.get('q')) { $('input').value = q.get('q').replace('YOUR_KEY', KEY); run(); }
-  else if (q.get('s')) { pick(q.get('s')); run(); }
-  stats(); setInterval(stats, 15000);
+  loadScenarios(0);
+  stats(); // the counts load on their own, so a failed attack list never leaves them on "…"
+  setInterval(stats, 15000);
 })();
 </script>
 </body>

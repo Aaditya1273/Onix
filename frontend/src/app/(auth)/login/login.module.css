@@ -40,13 +40,10 @@
 .media { position: relative; border-radius: 22px; overflow: hidden; background: #0c0a08; min-height: 560px; }
 .media video, .media img.poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity 1.1s ease; }
 .media::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(20, 16, 13, .35) 0%, transparent 22%, transparent 55%, rgba(20, 16, 13, .82) 100%); }
-.bars { position: absolute; z-index: 2; top: 18px; left: 18px; right: 18px; display: flex; gap: 6px; }
-.bar { flex: 1; height: 3px; border-radius: 3px; background: rgba(242, 237, 231, .28); overflow: hidden; }
-.bar i { display: block; height: 100%; width: 0; background: var(--paper); }
-.bar.done i { width: 100%; }
-.bar.on i { animation: fill linear forwards; }
-@keyframes fill { to { width: 100%; } }
-.caption { position: absolute; z-index: 2; left: 22px; right: 22px; bottom: 22px; animation: rise .6s cubic-bezier(.2, .9, .3, 1) both; }
+.caption { position: absolute; z-index: 2; left: 22px; right: 22px; bottom: 22px; animation: rise .6s cubic-bezier(.2, .9, .3, 1) both; transition: opacity .8s ease, transform .8s ease; }
+.caption.leaving { opacity: 0; transform: translateY(-16px); }
+.caption > * { display: block; }
+.caption .verdict { display: inline-block; }
 @keyframes rise { from { opacity: 0; transform: translateY(12px); } }
 .verdict { display: inline-block; font: 800 12px/1 'Epilogue', sans-serif; padding: 6px 9px 5px; border-radius: 6px; margin-bottom: 10px; }
 .block { background: var(--orange); color: #fff; }
@@ -54,7 +51,7 @@
 .allow { background: rgba(20, 16, 13, .6); color: var(--paper); box-shadow: inset 0 0 0 1.5px rgba(242, 237, 231, .5); backdrop-filter: blur(6px); }
 .cmd { font: 15px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: #fff; overflow-wrap: anywhere; text-shadow: 0 1px 12px rgba(0, 0, 0, .5); }
 .why { margin-top: 4px; font-size: 14px; color: #e6ddd2; text-shadow: 0 1px 10px rgba(0, 0, 0, .5); }
-.src { margin-top: 12px; font-size: 12px; color: rgba(242, 237, 231, .6); }
+.src { margin-top: 12px; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: rgba(242, 237, 231, .55); letter-spacing: .02em; }
 
 @media (max-width: 960px) {
   .page { grid-template-columns: 1fr; align-content: start; padding: 16px; gap: 8px; }
@@ -64,5 +61,4 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .media video, .media img.poster, .caption, .spin { transition: none; animation: none; }
-  .bar.on i { animation: none; width: 100%; }
 }

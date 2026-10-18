@@ -21,7 +21,8 @@ ENV VIGIL_FALKORDB_URL=redis://127.0.0.1:6379 \
     VIGIL_ORG_ID=default \
     VIGIL_AUDIT_PATH=/tmp/vigil-audit.jsonl \
     VIGIL_ALLOW_EXEC=false \
-    VIGIL_ALLOWED_ORIGINS=https://vigil-graph.vercel.app
+    VIGIL_ALLOWED_ORIGINS=https://vigil-graph.vercel.app \
+    VIGIL_DASHBOARD_BASE=https://vigil-graph.vercel.app
 EXPOSE 8080
 ENTRYPOINT []
 CMD ["sh", "/app/start.sh"]

@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Shield, Zap, DollarSign, AlertTriangle, CheckCircle, XCircle, Loader2, ExternalLink } from 'lucide-react'
+import { ConnectGuide } from './guide'
 
 interface OAuthRequest {
   request_id: string
@@ -327,6 +328,11 @@ function ConnectInner() {
   )
 }
 
+// Claude's OAuth flow lands here with ?request=…; anyone else gets the setup guide.
+function ConnectRoute() {
+  return useSearchParams().get('request') ? <ConnectInner /> : <ConnectGuide />
+}
+
 export default function ConnectPage() {
   return (
     <Suspense fallback={
@@ -334,7 +340,7 @@ export default function ConnectPage() {
         <Loader2 className="w-6 h-6 text-indigo-400 animate-spin" />
       </div>
     }>
-      <ConnectInner />
+      <ConnectRoute />
     </Suspense>
   )
 }

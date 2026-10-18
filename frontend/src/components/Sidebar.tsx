@@ -7,13 +7,14 @@ import { useSession, signOut } from 'next-auth/react'
 import {
   LayoutDashboard, Activity, BarChart3, AlertTriangle, Shield, FileCheck, Zap, Cpu, Settings, HelpCircle,
   Network, GitBranch, History, ShieldCheck, Scissors, Gauge, Sparkles, Clock, FlaskConical, LogOut,
-  ChevronDown, ArrowUpRight, Plug, Brain, Radio, Landmark,
+  ChevronDown, ArrowUpRight, Plug, Brain, Radio, Landmark, Sigma,
 } from 'lucide-react'
 
 type Item = { label: string; href: string; icon: React.ElementType; external?: boolean }
 
 // What VIGIL decides and why: always in view.
 const primary: Item[] = [
+  { label: 'Evidence',    href: '/evidence',           icon: Sigma },
   { label: 'Decisions',   href: '/decisions',          icon: Scissors },
   { label: 'Playground',  href: '/playground',         icon: FlaskConical },
   { label: 'Autonomy',    href: '/autonomy',           icon: ShieldCheck },

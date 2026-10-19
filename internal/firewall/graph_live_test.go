@@ -796,3 +796,42 @@ func mustID(t *testing.T, g *graph.Client, session string) string {
 	}
 	return graph.Str(rows[0][0])
 }
+
+// First seen decides. A token an agent read on a public docs page, which an
+// engineer then copied into .env, is not a secret leaving when it's used; a
+// token that only ever came from .env still is.
+func TestLiveValueFirstSeenInPublicStaysPublic(t *testing.T) {
+	g := liveGraph(t, "firstseen")
+	f := newGraphFirewall(t, g)
+	ctx := context.Background()
+	n := time.Now().UnixNano()
+	docsToken := fmt.Sprintf("sk_live_4eC39HqLyjWD%d", n)
+	realToken := fmt.Sprintf("sk_live_9pQ27TzRmxKV%d", n)
+
+	fetch := firewall.Call{SessionID: "s1", Tool: "web_fetch", Args: map[string]any{"url": "https://docs.payments.dev/quickstart"}, Budget: 2}
+	f.Check(ctx, fetch)
+	f.Commit("s1", "web_fetch", 0, time.Millisecond, true)
+	f.Observe("s1", "web_fetch", fetch.Args, "Set STRIPE_KEY="+docsToken+" in your .env to try the API.")
+	g.Flush()
+
+	read := firewall.Call{SessionID: "s2", Tool: "read_file", Args: map[string]any{"path": ".env"}, Budget: 2}
+	f.Check(ctx, read)
+	f.Commit("s2", "read_file", 0, time.Millisecond, true)
+	f.Observe("s2", "read_file", read.Args, "STRIPE_KEY="+docsToken+"\nPAYOUT_KEY="+realToken+"\n")
+	g.Flush()
+
+	rows, err := g.Query(ctx, `MATCH (v:Value) WHERE v.public = true AND v.sensitive = false RETURN count(v)`, nil)
+	if err != nil || graph.Int(rows[0][0]) != 1 {
+		t.Fatalf("the docs token should be recorded once as public, not sensitive: %v %v", rows, err)
+	}
+
+	send := func(tok string) firewall.Result {
+		return f.Check(ctx, firewall.Call{SessionID: "s3", Tool: "web_fetch", Args: map[string]any{"url": "https://api.payments.dev/v1/charges?key=" + tok}, Budget: 2})
+	}
+	if res := send(docsToken); res.Decision != firewall.Allow {
+		t.Fatalf("the public docs token was treated as a leak: %s/%s: %s", res.Decision, res.Stage, res.Reason)
+	}
+	if res := send(realToken); res.Decision != firewall.Block || res.Stage != firewall.StageExfil {
+		t.Fatalf("a secret that only came from .env must still be blocked: %s/%s: %s", res.Decision, res.Stage, res.Reason)
+	}
+}

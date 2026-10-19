@@ -496,10 +496,21 @@ func (c *Client) Timeline(ctx context.Context, words []string) ([]Fact, []Triple
 // a web page contained) to the session's latest call of tool. Only hashes are
 // stored, never the values.
 func (c *Client) RecordValues(session, tool string, hashes []string, sensitive bool, trust string) {
+	c.recordValues(session, tool, hashes, sensitive, false, trust)
+}
+
+// RecordPublic links values that a call fetched from outside, such as
+// credential-shaped strings on a docs page. Seen there first, a value stays
+// public: reading the same string from .env later doesn't make it a secret.
+func (c *Client) RecordPublic(session, tool string, hashes []string) {
+	c.recordValues(session, tool, hashes, false, true, "EXTERNAL")
+}
+
+func (c *Client) recordValues(session, tool string, hashes []string, sensitive, public bool, trust string) {
 	if c == nil || len(hashes) == 0 {
 		return
 	}
-	params := map[string]any{"session": session, "tool": tool, "hashes": hashes, "sensitive": sensitive, "trust": trust, "rank": TrustRank[trust]}
+	params := map[string]any{"session": session, "tool": tool, "hashes": hashes, "sensitive": sensitive, "public": public, "trust": trust, "rank": TrustRank[trust]}
 	c.enqueue(func(ctx context.Context) error {
 		return c.Exec(ctx, q("record_values"), params)
 	})

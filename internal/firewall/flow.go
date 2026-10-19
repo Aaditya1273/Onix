@@ -2,7 +2,11 @@ package firewall
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -40,11 +44,35 @@ var (
 	// Credentials with a recognizable prefix, wherever they appear.
 	tokenRe = regexp.MustCompile(`\b(?:sk-|sk_live_|ghp_|gho_|github_pat_|AKIA|xox[abprs]-|AIza|glpat-)[A-Za-z0-9_\-]{8,}`)
 	urlRe   = regexp.MustCompile(`https?://[^\s"'<>()\[\]{}\\]+`)
+	// Documented example values are public by definition: AWS's own docs key
+	// is AKIAIOSFODNN7EXAMPLE, and READMEs say your_api_key_here.
+	placeholderRe = regexp.MustCompile(`(?i)example|sample|dummy|placeholder|changeme|your[_-]?(api[_-]?)?(key|token|secret)|x{6,}|\*{4,}|<[^>]*>`)
 	// Argument tokens keep URL and token punctuation, split on the rest.
 	argSplitRe = regexp.MustCompile(`[\s"'=&?,;|()<>\[\]{}\\` + "`" + `]+`)
 )
 
-func valueHash(v string) string { return graph.Hash("value", strings.TrimRight(v, ".,;:")) }
+// valueKey keys every value digest (VIGIL_VALUE_KEY). With it the graph holds
+// HMACs: a stolen graph dump can't be checked against a guessed secret,
+// because the key lives with this process and never enters the graph. Without
+// it, digests are plain SHA-256, as before.
+var valueKey = []byte(os.Getenv("VIGIL_VALUE_KEY"))
+
+// canonValue is the form a value is compared in, so the same secret quoted,
+// padded or followed by punctuation is still the same value.
+func canonValue(v string) string {
+	v = strings.Trim(strings.TrimSpace(v), "\"'`")
+	return strings.ToLower(strings.TrimRight(v, ".,;:"))
+}
+
+func valueHash(v string) string {
+	c := canonValue(v)
+	if len(valueKey) == 0 {
+		return graph.Hash("value", c)
+	}
+	m := hmac.New(sha256.New, valueKey)
+	m.Write([]byte("value:" + c))
+	return hex.EncodeToString(m.Sum(nil))
+}
 
 func hashAll(vals []string) []string {
 	seen := map[string]bool{}
@@ -78,7 +106,18 @@ func secretValues(text string) []string {
 			out = append(out, val)
 		}
 	}
-	return append(out, tokenRe.FindAllString(text, maxValues)...)
+	out = append(out, tokenRe.FindAllString(text, maxValues)...)
+	kept := out[:0]
+	for _, v := range out {
+		cred := v
+		if credURLRe.MatchString(v) { // postgres://app:pw@db.example.com: only the credentials count
+			cred = v[:strings.Index(v, "@")]
+		}
+		if !placeholderRe.MatchString(cred) {
+			kept = append(kept, v)
+		}
+	}
+	return kept
 }
 
 func secretKey(key string) bool {
@@ -186,6 +225,10 @@ func (f *Firewall) Observe(sessionID, tool string, args map[string]any, output s
 	}
 	if hasCap(caps, policy.CatNetwork) {
 		f.deps.Graph.RecordValues(sessionID, tool, hashAll(urlRe.FindAllString(output, maxValues)), false, "EXTERNAL")
+		// Credential-shaped values in fetched content were public before any
+		// session read them as secrets. Seen here first, they stay public: a
+		// docs token later copied into .env is not a secret leaving.
+		f.deps.Graph.RecordPublic(sessionID, tool, hashAll(secretValues(output)))
 	}
 }
 

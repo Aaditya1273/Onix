@@ -416,6 +416,11 @@ that and never decides a call by itself.
 Vector stores always return their best guess. A property graph returns **zero rows**, and zero rows is an answer:
 `vigil_fact("gym time")` → `NOT_IN_HISTORY`, instead of a confident hallucination ([measured](#6-measurements)).
 
+The other side of the test is false blocks: legitimate calls that carry a value VIGIL has seen before, such as the
+docs' token copied into `.env`, a documented placeholder, or a public address. Through the same real hook, **1 of 4**
+is falsely blocked with the graph, and it is the known limit: a value public somewhere VIGIL never looked
+([lookalikes.md](docs/lookalikes.md), [`scripts/lookalikes.py`](scripts/lookalikes.py)).
+
 ## 3. Data model
 
 One graph per tenant (`tenant_<VIGIL_ORG_ID>`) and one shared graph (`threat_intel`) that holds only hashes. Indexes

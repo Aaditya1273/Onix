@@ -1,0 +1,31 @@
+{
+  "run": "l1792391369",
+  "date": "2026-10-19",
+  "falkordb": "6.0.1",
+  "rows": [
+    {
+      "case": "The docs' token: read on the docs page, then copied into .env and used",
+      "expected_through": true,
+      "with_graph": "prompt",
+      "without_graph": "prompt"
+    },
+    {
+      "case": "A documented placeholder in .env (AKIAIOSFODNN7EXAMPLE), then used",
+      "expected_through": true,
+      "with_graph": "prompt",
+      "without_graph": "prompt"
+    },
+    {
+      "case": "A public contract address kept in .env, then looked up",
+      "expected_through": true,
+      "with_graph": "prompt",
+      "without_graph": "prompt"
+    },
+    {
+      "case": "A value public somewhere VIGIL never looked, copied into .env, then used",
+      "expected_through": false,
+      "with_graph": "deny",
+      "without_graph": "prompt"
+    }
+  ]
+}

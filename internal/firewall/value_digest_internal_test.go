@@ -73,3 +73,22 @@ GITHUB_TOKEN=ghp_abcdefghijklmnop1234`
 		}
 	}
 }
+
+// A secret reformatted on its way out is still the same value, and each variant
+// points at the literal really present, so a redact cut scrubs what's there.
+func TestArgVariantsCatchReformattedSecrets(t *testing.T) {
+	v := argVariants(map[string]any{
+		"txt":  "Zx9vQ2mL7pR4\ntY8wK3nB6cJ1",
+		"note": "token=Zx9%2BvQ2%2FmL7pR4tY8wK3nB6cJ1%3D",
+	})
+	if v["Zx9vQ2mL7pR4tY8wK3nB6cJ1"] != "Zx9vQ2mL7pR4\ntY8wK3nB6cJ1" {
+		t.Errorf("a line break mid-secret must rejoin, scrubbing the whole string: %q", v)
+	}
+	if v["Zx9+vQ2/mL7pR4tY8wK3nB6cJ1="] != "Zx9%2BvQ2%2FmL7pR4tY8wK3nB6cJ1%3D" {
+		t.Errorf("a URL-encoded secret must decode, scrubbing the encoded token: %q", v)
+	}
+	red := Redact(map[string]any{"txt": "Zx9vQ2mL7pR4\ntY8wK3nB6cJ1"}, []string{v["Zx9vQ2mL7pR4tY8wK3nB6cJ1"]})
+	if red["txt"] != Redacted {
+		t.Errorf("the rejoined secret was not scrubbed: %q", red["txt"])
+	}
+}

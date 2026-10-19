@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -174,6 +175,39 @@ func argTokens(args map[string]any) []string {
 	return out
 }
 
+// argVariants are a value's reformatted shapes that splitting on whitespace
+// would miss: a secret pasted with a line break mid-string (matched with all
+// whitespace removed) and a URL-encoded one (matched decoded). Each maps to the
+// literal actually present, so a redact cut scrubs what is really there: the
+// whole string for a rejoined value, the encoded token for a decoded one.
+func argVariants(v any) map[string]string {
+	out := map[string]string{}
+	var walk func(any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case string:
+			if j := strings.Join(strings.Fields(x), ""); j != x && len(j) >= 8 && len(x) <= 4096 {
+				out[j] = x
+			}
+			for _, t := range argSplitRe.Split(x, -1) {
+				if d, err := url.PathUnescape(t); err == nil && d != t && len(d) >= 8 {
+					out[d] = t
+				}
+			}
+		case map[string]any:
+			for _, e := range x {
+				walk(e)
+			}
+		case []any:
+			for _, e := range x {
+				walk(e)
+			}
+		}
+	}
+	walk(v)
+	return out
+}
+
 // fileNames are the values a file path is matched by: the path and its base
 // name (".env", "credentials"), so a relative reference still matches. The
 // "file:" prefix keeps them apart from literal values, which any shell
@@ -298,10 +332,16 @@ func (f *Firewall) checkFlows(ctx context.Context, c Call, caps []string, callID
 		if net { // curl -d @.env: a file that held secrets, named in a call that reaches the network
 			toks = append(toks, fileRefs(c.Args[k])...)
 		}
-		perArg[k] = toks
 		for _, t := range toks {
 			byHash[valueHash(t)] = t
 		}
+		for v, lit := range argVariants(c.Args[k]) {
+			if _, ok := byHash[valueHash(v)]; !ok {
+				byHash[valueHash(v)] = lit
+				toks = append(toks, v)
+			}
+		}
+		perArg[k] = toks
 		all = append(all, toks...)
 	}
 	if len(all) == 0 {

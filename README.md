@@ -1,29 +1,13 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo-light.png">
-    <img src="docs/img/logo.png" width="72" alt="VIGIL logo">
-  </picture>
-</p>
-
-<h1 align="center">VIGIL</h1>
-
-<h3 align="center">Catch the attack that no single tool call reveals.</h3>
+<p align="center"><img src="docs/img/banner.png" alt="VIGIL: catch the attack that no single tool call reveals. Built on FalkorDB." width="100%"></p>
 
 <p align="center">
-An AI agent reads <code>.env</code> in one session and posts the key from another. A trusted tool quietly rewrites its
-own description. A package name is one letter off. Every one of those calls looks harmless on its own; the danger is
-in the <b>path between them</b>. VIGIL keeps that path in FalkorDB and decides each tool call against it, in a median
-of 0.71 ms of graph time: block it, pause it, or let <code>algo.maxFlow</code> cut just the argument that carries the
-secret. Autonomy is granted only as far as the graph can prove it is safe.
-</p>
-
-<p align="center">
+  <a href="https://youtu.be/wgfFvCq6VJE"><b>Film (3:25)</b></a> ·
+  <a href="https://dev.to/aaditya_1273/my-ai-agent-leaked-a-secret-across-two-sessions-every-guard-said-fine-337g"><b>Blog</b></a> ·
   <a href="https://vigil-graph.vercel.app/evidence"><b>Live dashboard</b></a> ·
   <a href="https://vigil-playground.onrender.com/web/playground.html"><b>Attack it</b></a> ·
-  <a href="#try-it-in-60-seconds"><b>Run it on your history</b></a> ·
-  <a href="#connect-your-agent"><b>Connect your agent</b></a> ·
-  <a href="#6-measurements"><b>Measurements</b></a> ·
-  <a href="#4-every-cypher-query"><b>All 68 Cypher queries</b></a>
+  <a href="#live-in-falkordb"><b>FalkorDB proof</b></a> ·
+  <a href="#measured-not-claimed"><b>Measurements</b></a> ·
+  <a href="#try-it-in-60-seconds"><b>Run it</b></a>
 </p>
 
 <p align="center">
@@ -31,82 +15,130 @@ secret. Autonomy is granted only as far as the graph can prove it is safe.
   <img src="https://img.shields.io/badge/Graph%20Hacks-2026-FF6B00?labelColor=1D1D1D" alt="Graph Hacks 2026">
   <img src="https://img.shields.io/badge/Claude%20Code-PreToolUse%20hook-D97757?labelColor=1D1D1D" alt="Claude Code PreToolUse hook">
   <img src="https://img.shields.io/badge/MCP-server%20%2B%20OAuth%202.1-3D7EFF?labelColor=1D1D1D" alt="MCP server with OAuth 2.1">
-  <img src="https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white&labelColor=1D1D1D" alt="Go 1.25">
-  <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white&labelColor=1D1D1D" alt="Next.js 16">
+  <img src="https://img.shields.io/badge/Cypher-68%20queries-FF6B00?labelColor=1D1D1D" alt="68 Cypher queries">
+  <img src="https://img.shields.io/badge/tests-164%20Go%20%C2%B7%2069%20e2e-1F9D55?labelColor=1D1D1D" alt="164 Go tests, 69 end-to-end checks">
 </p>
 
-<p align="center"><sub>
-<a href="#measured-not-claimed">Results</a> ·
-<a href="#why-it-is-different">Why it is different</a> ·
-<a href="#see-it">Product tour</a> ·
-<a href="#proof-in-falkordbs-own-browser">FalkorDB proof</a> ·
-<a href="#for-judges-three-ways-to-check-it">For judges</a> ·
-<a href="#connect-your-agent">Connect</a> ·
-<a href="#every-falkordb-feature-vigil-relies-on">FalkorDB features</a> ·
-<a href="#quality-checks">Quality checks</a> ·
-<a href="#3-data-model">Data model</a> ·
-<a href="#4-every-cypher-query">Cypher</a> ·
-<a href="#10-known-limitations">Limitations</a>
-</sub></p>
+**VIGIL** is a firewall for AI agents whose memory is a graph. An agent reads `.env` in one session and posts the key
+from another. A trusted tool quietly rewrites its own description. A package name is one letter off. Every one of those
+calls looks harmless on its own; the danger is in the **path between them**. VIGIL keeps that path in **FalkorDB** and
+decides each tool call against it, in a median of **0.71 ms** of graph time: block it, pause it, or let
+`algo.maxFlow` cut just the argument that carries the secret.
 
 <p align="center">
-  <img src="docs/img/playground.png" width="94%" alt="VIGIL's decision on a cross-session exfiltration attempt: Blocked, a secret was on its way out, with the influence network FalkorDB cut and every step of the session">
-  <br><sub>A real decision from the public playground. Session A read <code>/repo/.env</code>; session B tried to post the key. The graph links the two, the min cut severs the call, and nothing runs.</sub>
+  <a href="https://youtu.be/wgfFvCq6VJE"><img src="docs/img/film.jpg" width="80%" alt="Watch the VIGIL film on YouTube"></a><br>
+  <sub>▶ <b>Watch the 3:25 film.</b> Every product screen in it is the real app, and every FalkorDB shot is our live FalkorDB Cloud graph.</sub>
 </p>
 
-<p align="center">
-  <img src="docs/img/cut-exfiltration.png" width="94%" alt="The influence network of the blocked call: source, the read in session A, the tainted value, the argument, the call, and the terminal edge cut in red">
-  <br><sub>The decisive path, as FalkorDB returned it. Every edge into the call carries the secret, so the cheapest cut (red, cost 1) is the call itself.</sub>
-</p>
+<table><tr>
+<td width="150" align="center"><img src="docs/img/fox/hello.webp" width="130" alt="Vix, VIGIL's courier fox"></td>
+<td>
+
+**Hi, I'm Vix.** I'm VIGIL's courier: every time your agent reaches for a tool, I carry the question to the graph and
+bring back a sealed answer. I'll walk you through this page. The short version: **agent attacks don't live in one tool
+call, they live in the path between calls, and only a graph remembers the path.**
+
+</td></tr></table>
 
 ---
 
-## Measured, not claimed
+## The problem
 
-Every chart below is drawn by [`scripts/charts.py`](scripts/charts.py) from a file a script wrote, never typed by hand:
-[docs/ablation.md](docs/ablation.md) ([`scripts/ablation.py`](scripts/ablation.py)) and
-[docs/measurements.md](docs/measurements.md) ([`scripts/measure.py`](scripts/measure.py)), against FalkorDB 6.0.2.
+**AI agents now read our files, run our commands and browse the web for us. They are already causing real damage.**
 
-<p align="center"><img src="docs/img/chart-ablation.svg" width="100%" alt="The same six attacks through the real Claude Code hook: with the graph, five blocked or paused and one rewritten; with the graph unreachable, VIGIL has no opinion on any of them"></p>
+| When | What happened | Source |
+|---|---|---|
+| **Jul 2025** | Replit's AI agent deleted a company's production database (records of 1,206 executives) during a code freeze, then misreported what it had done | [eWeek](https://www.eweek.com/news/replit-ai-coding-assistant-failure/) |
+| **May 2025** | One malicious public GitHub issue hijacked an agent through the GitHub MCP server and leaked private repository data | [Invariant Labs](https://invariantlabs.ai/blog/mcp-github-vulnerability) |
+| **Jul 2025** | Amazon Q's VS Code extension v1.84.0 shipped with an injected prompt telling the agent to wipe local files and AWS resources; a formatting error stopped it | [TechRepublic](https://www.techrepublic.com/article/news-amazon-q-data-wiping-prompt-security-hack/) |
+| **Aug 2025** | The Nx "s1ngularity" malware used developers' own Claude, Gemini and Q CLIs to hunt for secrets and published them to GitHub | [GitGuardian](https://blog.gitguardian.com/the-nx-s1ngularity-attack-inside-the-credential-leak/) |
 
-The attacks above are the ones a single call cannot reveal, and VIGIL's own fallback without the database stops none
-of them; that is [the removal test](#2-the-removal-test), measured. Without the graph VIGIL still enforces declared
-intent, session budgets and loop detection; these attacks just need history to be seen.
+<p align="center"><img src="docs/img/gif/incidents.webp" width="80%" alt="The incident cards from the film"></p>
+
+**Today's guards check one call at a time.** That's the gap. Your bank doesn't judge a card swipe alone: a coffee in
+Mumbai is fine, a hotel in Dubai an hour later is fine, together they freeze the card. Nobody does that for agents.
 
 <table><tr>
-<td width="50%" valign="top"><img src="docs/img/chart-latency.svg" alt="Graph time per decision p50 0.71 ms, p99 2.69 ms; full hook round trip p50 3.73 ms, p99 12.95 ms"></td>
-<td width="50%" valign="top"><img src="docs/img/chart-benign.svg" alt="390 benign developer calls: 270 allowed by earned autonomy, 120 left to the normal prompt, 0 blocked or paused"></td>
+<td width="50%"><img src="docs/img/gif/bank.webp" alt="The bank sees the pattern and freezes the card"><br><sub><b>Your bank sees the pattern.</b></sub></td>
+<td width="50%"><img src="docs/img/gif/sessions.webp" alt="Monday the agent reads .env, Wednesday a hidden instruction makes it send it; each step passes"><br><sub><b>Your agent's guard doesn't.</b> Monday a read, Wednesday a <code>curl</code>: every step passed, and the key is gone.</sub></td>
 </tr></table>
+
+<table><tr>
+<td width="150" align="center"><img src="docs/img/fox/reading.webp" width="130" alt="Vix reading the reports"></td>
+<td>
+
+**Vix, reading the reports:** "Look at what they have in common. None of these needed a clever exploit in a single
+call. They needed **history**: what was read before, where it came from, what a tool used to say about itself. A guard
+that forgets everything between calls can't see any of it."
+
+</td></tr></table>
+
+## What VIGIL does
+
+| | Feature | How |
+|---|---|---|
+| 🧠 | **Remembers every call** | Each read, value (hashed, never stored), session, tool call, package and decision becomes a node or edge in a FalkorDB graph, one graph per tenant |
+| 🔗 | **Catches cross-session leaks** | `(Session)-[:MADE]->(Call)-[:READ]->(Value)<-[:ARG_CONTAINS]-(Call)`: a secret read in any session, headed out in another, is matched by hash |
+| ✂️ | **Cuts only what leaks** | `algo.maxFlow` over the call's influence network: redact one argument (cost 2) or block the call (cost 2n−1), [read off one number](#51-the-database-computes-the-cut-beats-2-and-7) |
+| 🪤 | **Rug pulls and look-alikes** | A changed tool description gets a `SUPERSEDES` edge and trust is revoked; `pip install reqeusts` hits `TYPOSQUAT_OF` |
+| 👤 | **Knows who data belongs to** | `SAME_AS*0..3` resolves "J. Blake" to Jordan Blake, a Customer, before customer data leaves |
+| 👁️ | **Shadow execution** | Predicted vs observed effects: a formatter that also writes `~/.ssh/authorized_keys` is flagged Critical |
+| 🏅 | **Earned autonomy** | 20 clean runs of a call shape and it stops asking; one incident resets the count |
+| ⏪ | **Time travel and "why?"** | Replay the graph as it stood at any decision; every verdict names the one edge that decided it |
+| 🧾 | **Tamper-evident log** | Decisions form a SHA-256 chain with `PREV` edges; one edited reason breaks every link after it |
+| 🔍 | **Reveal your own agent** | `vigil-cli reveal` replays your real Claude Code, Codex or Gemini CLI history locally |
+
+<p align="center">
+<img src="docs/img/evidence.png" width="32%" alt="Evidence: what VIGIL decided and why">
+<img src="docs/img/min-cut.png" width="32%" alt="Decisions: the min cut removes only the txt argument">
+<img src="docs/img/timeline.png" width="32%" alt="Time travel: the graph at any moment">
+<br><sub>Evidence · Decisions · Time travel. Every screen reads the live server and its graph; a number the server can't back shows "—", not 0.</sub>
+</p>
+
+## VIGIL in four moments
 
 <table>
 <tr>
-<td align="center" width="20%"><h3>0.71 ms</h3><sub>graph time per decision, p50<br>(p99 2.69 ms)</sub></td>
-<td align="center" width="20%"><h3>3.73 ms</h3><sub>full hook round trip, p50<br>(p99 12.95 ms)</sub></td>
-<td align="center" width="20%"><h3>0 of 390</h3><sub>benign calls wrongly denied</sub></td>
-<td align="center" width="20%"><h3>200 of 200</h3><sub>made-up subjects answered with zero rows, not a guess</sub></td>
-<td align="center" width="20%"><h3>8 of 8</h3><sub>attack beats reached the expected verdict</sub></td>
+<td width="50%" valign="top">
+
+**① The graph finds the path, the min cut severs it.** Session A read the key on Monday; session B's `curl` on
+Wednesday carries it. `algo.maxFlow` finds the one edge to cut. Blocked, in 0.71 ms of graph time.
+
+<img src="docs/img/gif/cut.webp" alt="The path lights hop by hop, the scissors cut one edge, Blocked">
+
+</td>
+<td width="50%" valign="top">
+
+**② Attack it yourself.** In the playground, replay the cross-session attack: Blocked. Switch to *what one call
+shows* and the evidence disappears. That's all every other guard ever sees.
+
+<img src="docs/img/gif/playground.gif" alt="Playground: the attack is blocked, and the one-call view hides the evidence">
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**③ Every decision opens into full evidence.** The edge that decided it, the path FalkorDB returned, and what would
+have happened without it.
+
+<img src="docs/img/gif/evidence.gif" alt="A decision opening into its full evidence">
+
+</td>
+<td valign="top">
+
+**④ Replay what the agent knew, and when.** Time travel re-queries the graph at each decision, so a leak assembles
+hop by hop across sessions. Earned trust sits next to it.
+
+<img src="docs/img/gif/timetravel.gif" alt="Time travel through the decisions">
+<img src="docs/img/gif/autonomy.gif" alt="Earned autonomy: 20 clean runs">
+
+</td>
 </tr>
 </table>
 
-Method and caveats (one client, localhost, scripted sessions) are in [section 6](#6-measurements).
-
-## Why it is different
-
-Stateless agent guards look at one call. **VIGIL looks at the path that led to it.**
-
-| | A stateless filter | VIGIL |
-|---|---|---|
-| Secret read in one session, sent from another | Sees an ordinary `curl` | Matches the value hash across sessions and blocks the call |
-| Only one argument carries the secret | Blocks the whole call, or lets it all through | `algo.maxFlow` cuts that argument; the rest of the call runs |
-| A tool's description changes after it was trusted | Keeps trusting it | `SUPERSEDES` edge: trust revoked, the next call asks |
-| `pip install reqeusts` | Needs a list that already knows it | `TYPOSQUAT_OF` in the graph, or another tenant's block (only a hash crosses tenants) |
-| "Why was this blocked?" | A rule name | The one edge whose absence would have changed the verdict |
-| A question it has no record of | A confident guess | Zero rows: `NOT_IN_HISTORY` |
-| Remove the database | Same product | A stateless pattern blocker. [That is the point.](#2-the-removal-test) |
-
-## See it
-
-Every screen reads the live server and its graph. Nothing is mocked; a number the server cannot back is shown as "—", not 0.
+<details>
+<summary><b>More screens: evidence, decisions, time travel, charts, consent, shadow execution, cost firewall, phone</b></summary>
 
 <table>
 <tr>
@@ -139,11 +171,51 @@ Every screen reads the live server and its graph. Nothing is mocked; a number th
 </tr>
 </table>
 
-## Proof in FalkorDB's own browser
+</details>
 
-The same evidence the dashboard draws, read straight out of the database with FalkorDB Browser on FalkorDB **6.0.2**
-(the version is in each screenshot's header), after the demo sessions ran through the real hook. The query is in the
-editor bar of each one.
+<table><tr>
+<td width="150" align="center"><img src="docs/img/fox/verified.webp" width="130" alt="Vix with a verified seal"></td>
+<td>
+
+**Vix, on guard duty:** "People ask me: *can't an agent just get around you?* Try it. Here's what happens."
+
+</td></tr></table>
+
+| Attempt | What the graph does |
+|---|---|
+| Read `.env` in one session, post it from another | The value hash is matched across sessions: denied, with the path as evidence |
+| Hide the secret in one argument of a useful call | The min cut redacts just that argument; the rest of the call runs |
+| Send it to a URL built from the secret | Destination arguments can't be redacted, so the cut lands on the call: blocked |
+| Change a trusted tool's description after approval | `SUPERSEDES` edge: trust revoked, the next call asks |
+| `pip install reqeusts` | `TYPOSQUAT_OF` in the graph, or another tenant's block (only a hash crosses tenants) |
+| Send customer data to an alias | `SAME_AS*0..3` resolves it to the Customer: denied |
+| A tool quietly does more than it said | Shadow execution flags the unpredicted effect as Critical and revokes its trust |
+| Edit the decision log afterwards | The `PREV` hash chain breaks at that decision; the ledger export says where |
+| Ask about something it never saw | Zero rows: `NOT_IN_HISTORY`, never a guess |
+| Unplug the database | VIGIL has no opinion on any of the six attacks. [That's the point.](#2-the-removal-test) |
+
+## Live in FalkorDB
+
+The same evidence the dashboard draws, read straight out of the database. These are real recordings of our tenant
+graph in **FalkorDB Cloud** (v4.22), queried in FalkorDB's own browser: 329 nodes and 464 edges.
+
+<table>
+<tr>
+<td width="50%" valign="top"><img src="docs/img/gif/falkordb-graph.gif" alt="FalkorDB Cloud: the full tenant graph settling in force layout"><br>
+<sub><b>The whole memory.</b> <code>MATCH (n)-[e]-(m) RETURN * LIMIT 400</code>: calls, sessions, decisions, values, tools and packages.</sub></td>
+<td width="50%" valign="top"><img src="docs/img/gif/falkordb-cut.gif" alt="FalkorDB Cloud: the FLOW influence networks"><br>
+<sub><b>The networks VIGIL cuts.</b> <code>MATCH (a)-[f:FLOW]->(b) RETURN a, f, b</code>: source → read → value → argument → call → sink.</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><img src="docs/img/gif/falkordb-chain.gif" alt="FalkorDB Cloud: eight decisions chained by PREV edges"><br>
+<sub><b>The decision chain.</b> <code>MATCH p=(a:Decision)-[:PREV*8]->(b:Decision) RETURN p</code>: every decision links to the one before it.</sub></td>
+<td width="50%" valign="top"><img src="docs/img/gif/falkordb-vs-vigil.gif" alt="Side by side: FalkorDB's raw graph and VIGIL's verdict"><br>
+<sub><b>Same kind of evidence, two views.</b> FalkorDB holds the raw graph; VIGIL turns a path into a verdict anyone can read.</sub></td>
+</tr>
+</table>
+
+<details>
+<summary><b>Static screenshots from FalkorDB 6.0.2 (local), with the query in each editor bar</b></summary>
 
 <table>
 <tr>
@@ -159,6 +231,68 @@ editor bar of each one.
 <sub><b>Look-alike packages.</b> <code>TYPOSQUAT_OF</code> edges to the package each one impersonates, and what depends on the real one: the blast radius the firewall checks on every install.</sub></td>
 </tr>
 </table>
+
+</details>
+
+## Measured, not claimed
+
+Every chart below is drawn by [`scripts/charts.py`](scripts/charts.py) from a file a script wrote, never typed by hand:
+[docs/ablation.md](docs/ablation.md) ([`scripts/ablation.py`](scripts/ablation.py)) and
+[docs/measurements.md](docs/measurements.md) ([`scripts/measure.py`](scripts/measure.py)), against FalkorDB 6.0.2.
+
+<p align="center"><img src="docs/img/chart-ablation.svg" width="100%" alt="The same six attacks through the real Claude Code hook: with the graph, five blocked or paused and one rewritten; with the graph unreachable, VIGIL has no opinion on any of them"></p>
+
+The attacks above are the ones a single call cannot reveal, and VIGIL's own fallback without the database stops none
+of them; that is [the removal test](#2-the-removal-test), measured. Without the graph VIGIL still enforces declared
+intent, session budgets and loop detection; these attacks just need history to be seen.
+
+<table><tr>
+<td width="50%" valign="top"><img src="docs/img/chart-latency.svg" alt="Graph time per decision p50 0.71 ms, p99 2.69 ms; full hook round trip p50 3.73 ms, p99 12.95 ms"></td>
+<td width="50%" valign="top"><img src="docs/img/chart-benign.svg" alt="390 benign developer calls: 270 allowed by earned autonomy, 120 left to the normal prompt, 0 blocked or paused"></td>
+</tr></table>
+
+<table>
+<tr>
+<td align="center" width="20%"><h3>0.71 ms</h3><sub>graph time per decision, p50<br>(p99 2.69 ms)</sub></td>
+<td align="center" width="20%"><h3>3.73 ms</h3><sub>full hook round trip, p50<br>(p99 12.95 ms)</sub></td>
+<td align="center" width="20%"><h3>0 of 390</h3><sub>benign calls wrongly denied</sub></td>
+<td align="center" width="20%"><h3>200 of 200</h3><sub>made-up subjects answered with zero rows, not a guess</sub></td>
+<td align="center" width="20%"><h3>8 of 8</h3><sub>attack beats reached the expected verdict</sub></td>
+</tr>
+</table>
+
+Method and caveats (one client, localhost, scripted sessions) are in [section 6](#6-measurements).
+
+<p align="center"><img src="docs/img/gif/impact.webp" width="80%" alt="6 of 6 with the graph, 0 of 6 without, 0 of 390 benign calls blocked, 0.71 ms"></p>
+
+## Why FalkorDB
+
+<table><tr>
+<td width="150" align="center"><img src="docs/img/fox/proud.webp" width="130" alt="Vix, proud of the graph"></td>
+<td>
+
+**Vix, on why a graph:** "A list of past calls can tell you *that* a secret was read. Only a graph can tell you *how* it
+got from Monday's read to Wednesday's `curl`, and FalkorDB can then run max flow on that exact path to find the one edge
+to cut, inside the same query engine, in under a millisecond."
+
+</td></tr></table>
+
+### Every FalkorDB feature VIGIL relies on
+
+| Feature | Where | Proven by |
+|---|---|---|
+| **`algo.maxFlow`**: the min cut decides redact vs block | [`cut_compute.cypher`](internal/graph/queries/cut_compute.cypher), network built by [`cut_build.cypher`](internal/graph/queries/cut_build.cypher) | `TestLiveMinCutRedactsBlocksOrAllows`; ablation row 6 |
+| **`algo.pageRank`**: maintainer risk in the dependency graph | [`maintainer_pagerank.cypher`](internal/graph/queries/maintainer_pagerank.cypher) | `TestLiveMaintainerRiskAndDigest` |
+| **Multigraph**: one graph per tenant plus a shared `threat_intel` graph holding only hashes | [`graph.go`](internal/graph/graph.go) (`ThreatGraph`) | `TestLiveThreatSharedAcrossTenants`, `TestLiveSecondTenantInheritsTheBlock` |
+| **Variable-length paths**: aliases, dependents | `SAME_AS*0..3` in [`entity_policy`](internal/graph/queries/entity_policy.cypher), `DEPENDS_ON*1..4` in [`blast_dependents`](internal/graph/queries/blast_dependents.cypher) | `TestLiveEntityResolvesThroughAliases`, `TestLiveTyposquatAndBlastRadius` |
+| **Temporal filtering**: the subgraph as it stood at time T | [`asof_subgraph.cypher`](internal/graph/queries/asof_subgraph.cypher) | `TestLiveAsOfShowsThePathHopByHop` |
+| **Hash chain as edges**: `PREV` between decisions | [`record_call.cypher`](internal/graph/queries/record_call.cypher) | `TestLiveDecisionsFormAHashChain`, `TestLiveLedgerExportVerifiesAndCatchesTampering` |
+| **Range indexes**, created on startup | `EnsureSchema` in [`graph.go`](internal/graph/graph.go) | every live test runs against them |
+| **Parameterised Cypher only**, read-only queries via `GRAPH.RO_QUERY` | [`graph.go`](internal/graph/graph.go) | `TestLiveRoundTripsHostileStrings` (injection strings round-trip intact) |
+| **Zero rows as an answer**: abstention instead of a guess | [`facts.cypher`](internal/graph/queries/facts.cypher) | `TestLiveFactsCarryAuthorityAndAbstain`; 200 of 200 in measurements |
+
+All **68** queries live one per file in [`internal/graph/queries/`](internal/graph/queries) and are listed in
+[section 4](#4-every-cypher-query). No APOC, no GDS: the graph algorithms are FalkorDB's own.
 
 ## For judges: three ways to check it
 
@@ -220,23 +354,6 @@ sends you, and sets the session's budget. The dashboard's [Plugins](https://vigi
 setup for Cursor and VS Code, and for Codex CLI, Windsurf, Kiro, Zed, Antigravity and Claude Desktop in the format each
 client's documentation gives (those six are marked as not yet tested against VIGIL).
 
-## Every FalkorDB feature VIGIL relies on
-
-| Feature | Where | Proven by |
-|---|---|---|
-| **`algo.maxFlow`**: the min cut decides redact vs block | [`cut_compute.cypher`](internal/graph/queries/cut_compute.cypher), network built by [`cut_build.cypher`](internal/graph/queries/cut_build.cypher) | `TestLiveMinCutRedactsBlocksOrAllows`; ablation row 6 |
-| **`algo.pageRank`**: maintainer risk in the dependency graph | [`maintainer_pagerank.cypher`](internal/graph/queries/maintainer_pagerank.cypher) | `TestLiveMaintainerRiskAndDigest` |
-| **Multigraph**: one graph per tenant plus a shared `threat_intel` graph holding only hashes | [`graph.go`](internal/graph/graph.go) (`ThreatGraph`) | `TestLiveThreatSharedAcrossTenants`, `TestLiveSecondTenantInheritsTheBlock` |
-| **Variable-length paths**: aliases, dependents | `SAME_AS*0..3` in [`entity_policy`](internal/graph/queries/entity_policy.cypher), `DEPENDS_ON*1..4` in [`blast_dependents`](internal/graph/queries/blast_dependents.cypher) | `TestLiveEntityResolvesThroughAliases`, `TestLiveTyposquatAndBlastRadius` |
-| **Temporal filtering**: the subgraph as it stood at time T | [`asof_subgraph.cypher`](internal/graph/queries/asof_subgraph.cypher) | `TestLiveAsOfShowsThePathHopByHop` |
-| **Hash chain as edges**: `PREV` between decisions | [`record_call.cypher`](internal/graph/queries/record_call.cypher) | `TestLiveDecisionsFormAHashChain`, `TestLiveLedgerExportVerifiesAndCatchesTampering` |
-| **Range indexes**, created on startup | `EnsureSchema` in [`graph.go`](internal/graph/graph.go) | every live test runs against them |
-| **Parameterised Cypher only**, read-only queries via `GRAPH.RO_QUERY` | [`graph.go`](internal/graph/graph.go) | `TestLiveRoundTripsHostileStrings` (injection strings round-trip intact) |
-| **Zero rows as an answer**: abstention instead of a guess | [`facts.cypher`](internal/graph/queries/facts.cypher) | `TestLiveFactsCarryAuthorityAndAbstain`; 200 of 200 in measurements |
-
-All **68** queries live one per file in [`internal/graph/queries/`](internal/graph/queries) and are listed in
-[section 4](#4-every-cypher-query). No APOC, no GDS: the graph algorithms are FalkorDB's own.
-
 ## Quality checks
 
 What was verified for this version, and how. Only checks that were actually run are listed.
@@ -251,6 +368,20 @@ What was verified for this version, and how. Only checks that were actually run 
 | Frontend build | `tsc --noEmit`, `eslint`, `next build` | no type errors, build succeeds, lint errors down from 28 to 2 (both pre-existing) |
 | Accessibility | text and control colours measured against WCAG 2.2 AA; verdicts always icon plus label; keyboard focus visible; graphs have list alternatives | design tokens all pass 4.5:1 for text, 3:1 for controls |
 | The landing page | computed styles of about 1,500 elements compared before and after at 1440, 768 and 375 px | unchanged, apart from its randomly shuffled marquee |
+
+<table><tr>
+<td width="150" align="center"><img src="docs/img/fox/writing.webp" width="130" alt="Vix writing down the limits"></td>
+<td>
+
+**Vix, being honest:** "Read this before you quote us. Secrets are matched by the hash of the literal value, so a
+base64-encoded or paraphrased secret gets through. VIGIL trusts its hook and its host. Earned trust is counted by
+scanning history, so it slows as history grows. The full list is in [section 10](#10-known-limitations)."
+
+</td></tr></table>
+
+---
+
+# Deep dive
 
 ## 1. Thesis
 
@@ -1685,8 +1816,24 @@ And unlike most security tools, **VIGIL interrupts you less the longer it runs**
   plan's idle sleep; a FalkorDB volume (any paid plan) keeps it.
 - **A tool-description feed.** Claude Code hooks don't carry MCP descriptions; a gateway would post `tools/list` to `/vigil/tools`.
 
+## Credits
+
+- **Film:** voice by [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) TTS (Apache-2.0); music and sound
+  synthesized with ffmpeg; every product screen is the real app and every FalkorDB shot is our live FalkorDB Cloud graph.
+- **Fonts:** Inter, Epilogue and JetBrains Mono (SIL OFL).
+- **Vix**, the courier fox, narrates this README only; she isn't part of the product UI.
+- **AI tools:** see [section 9](#9-ai-assistance-disclosure).
+
 ## Author
 
 **Aaditya** · [@Aaditya1273](https://github.com/Aaditya1273)
+
+<table><tr>
+<td width="150" align="center"><img src="docs/img/fox/wave.webp" width="130" alt="Vix waving goodbye"></td>
+<td>
+
+**Vix, signing off:** "Give your agents autonomy. Not your secrets."
+
+</td></tr></table>
 
 <p align="center"><b>Earn the autonomy. Prove the history. Remember everything.</b></p>

@@ -1670,8 +1670,14 @@ them, and docs/DEMO_SCRIPT.md reproduces each beat.
 - **Hidden tool internals.** Shadow execution diffs what a tool *reports* it did against what was predicted. A tool
   that writes a file and says nothing, or does its work inside a remote MCP server, is not caught; that needs
   kernel-level tracing (eBPF) or the server's cooperation.
-- **Paraphrased secrets.** Values are matched by hash of the literal. A secret that is base64-encoded, split, or
-  paraphrased by the model before it leaves is not recognized.
+- **Paraphrased secrets.** Values are matched by a digest of the canonicalized literal (quotes, padding, case and
+  trailing punctuation removed; HMAC-SHA256 under `VIGIL_VALUE_KEY` when set). A secret that is base64-encoded, split,
+  or paraphrased by the model before it leaves is not recognized.
+- **"Public first" needs a sighting.** A value VIGIL first saw in fetched public content (a docs page) stays public, so
+  the docs' example token later copied into `.env` is not treated as a secret leaving
+  (`TestLiveValueFirstSeenInPublicStaysPublic`), and documented placeholders (`…EXAMPLE`, `your_api_key_here`) are
+  never secrets. A value that was public somewhere VIGIL never looked, such as a repo the agent didn't read, is still
+  treated as a secret when it first appears in a secret context.
 - **Compromised host.** VIGIL trusts its hook and its host. A compromised machine can forge hook input, skip the hook,
   or rewrite the graph.
 - **Scan-time reputation matches by server name**, so two servers that share a name can be confused (the

@@ -14,6 +14,7 @@ import { VERDICT, stageLabel, verdictOf, type Verdict } from '@/lib/verdict'
 import { AXIS, GRID, useWidth } from './charts'
 import { SignalRadar, VerdictRing } from './forms'
 import { useIntro } from '@/lib/useIntro'
+import { Odometer } from '@/components/app/Odometer'
 
 export interface ODecision { id?: string; decision: string; stage: string; tool: string; session_id: string; agent?: string; reason?: string; at: string; graph_ms: number }
 export interface ODigest { decisions: number; by_verdict: Record<string, number>; by_stage: Record<string, number>; model_free_fraction: number; graph_queried: number; graph_ms_p50: number; graph_ms_p95: number }
@@ -52,7 +53,7 @@ function Stat({ label, value, chip, first }: { label: string; value: string; chi
     <div className={`rounded-[14px] px-4 py-3 ${first ? 'bg-[#faf5ee] ring-1 ring-[#f1e6d8]' : ''}`}>
       <p className="text-[12.5px] font-medium text-[#6b6158]">{label}</p>
       <p className="mt-1 flex flex-wrap items-baseline gap-2">
-        <span className="font-display text-[26px] font-bold leading-none text-[#14100d] tabular-nums tracking-[-0.02em]">{value}</span>{chip}
+        <span className="font-display text-[26px] font-bold leading-none text-[#14100d] tabular-nums tracking-[-0.02em]"><Odometer value={value} /></span>{chip}
       </p>
     </div>
   )

@@ -4,6 +4,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Ban, Check, CheckCircle2, Copy, Info, OctagonAlert, PauseCircle, RefreshCw, Scissors } from 'lucide-react'
 import type { Resource } from '@/lib/useResource'
+import { Odometer } from './Odometer'
 import { describe } from '@/lib/api'
 import { VERDICT, type Verdict } from '@/lib/verdict'
 
@@ -60,7 +61,7 @@ export function ResourceGate<T>({ r, loading = 'Loading…', isEmpty, empty, chi
 export function Kpi({ value, label, note, tone }: { value: string | number | null; label: string; note?: React.ReactNode; tone?: string }) {
   return (
     <div className={`app-kpi${value === null ? ' app-kpi-unknown' : ''}`}>
-      <div className="app-num" style={tone && value !== null ? { color: tone } : undefined}>{value === null ? '—' : value}</div>
+      <div className="app-num" style={tone && value !== null ? { color: tone } : undefined}>{value === null ? '—' : <Odometer value={value} />}</div>
       <span className="app-label">{label}</span>
       {note && <div className="app-meta mt-0.5">{note}</div>}
     </div>

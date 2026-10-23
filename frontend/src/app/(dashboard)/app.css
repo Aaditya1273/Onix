@@ -204,6 +204,35 @@
 @keyframes a-rise { to { opacity: 1; transform: none; } }
 .intro .a-zoom { opacity: 0; transform: scale(.35); animation: a-pop .8s cubic-bezier(.2,1.15,.4,1) forwards; animation-delay: var(--d, 0s); }
 
+/* ---- Motion: the brand film's language (calm, paper-like, precise) ------------
+   Every animation fills "backwards" only, so nothing keeps a transform after it ends
+   (a transform left on an ancestor would break full-screen graphs). */
+
+/* Page titles sweep in from blurred to sharp, left to right; the line under them follows. */
+.dashboard-shell h1 { animation: title-in .9s cubic-bezier(.2,.8,.2,1) backwards; -webkit-mask-image: linear-gradient(90deg, #000 45%, transparent 55%); mask-image: linear-gradient(90deg, #000 45%, transparent 55%); -webkit-mask-size: 250% 100%; mask-size: 250% 100%; -webkit-mask-position: 0 0; mask-position: 0 0; }
+@keyframes title-in { from { -webkit-mask-position: 100% 0; mask-position: 100% 0; filter: blur(6px); opacity: .2; } }
+.dashboard-shell h1 + p { animation: line-in .7s ease .25s backwards; }
+@keyframes line-in { from { opacity: 0; filter: blur(4px); transform: translateY(6px); } }
+
+/* Sections settle like paper: a little lift and tilt, staggered, also when a sub-tab switches. */
+.dashboard-shell > .max-w-6xl > :is(section, div, ul, form):not(:first-child) { animation: settle .7s cubic-bezier(.2,.8,.2,1) backwards; }
+.dashboard-shell > .max-w-6xl > :nth-child(3) { animation-delay: .12s; }
+.dashboard-shell > .max-w-6xl > :nth-child(4) { animation-delay: .22s; }
+.dashboard-shell > .max-w-6xl > :nth-child(5) { animation-delay: .32s; }
+.dashboard-shell > .max-w-6xl > :nth-child(n+6) { animation-delay: .4s; }
+@keyframes settle { from { opacity: 0; transform: translateY(16px) rotate(-.5deg); filter: blur(3px); } }
+
+/* Rolling digits (components/app/Odometer). */
+.odo { display: inline-flex; align-items: baseline; font-variant-numeric: tabular-nums; }
+.odo-col { display: inline-block; height: 1.1em; line-height: 1.1em; overflow: hidden; vertical-align: bottom; }
+.odo-strip { display: flex; flex-direction: column; transition: transform 1.1s cubic-bezier(.2,.8,.2,1); }
+.odo-strip > span { height: 1.1em; }
+
+/* Swimlane dots gather from a scatter into their lanes (--dx/--dy set per dot). */
+.intro .a-gather { animation: gather 1.1s cubic-bezier(.2,.8,.2,1) backwards; animation-delay: var(--d, 0s); }
+@keyframes gather { from { opacity: 0; transform: translate(var(--dx, 0), var(--dy, 0)); } }
+
 @media (prefers-reduced-motion: reduce) {
+  .dashboard-shell h1, .dashboard-shell h1 + p, .dashboard-shell > .max-w-6xl > *, .odo-strip { animation: none !important; transition: none !important; -webkit-mask-image: none; mask-image: none; }
   .dashboard-shell .animate-fadeIn, .app-skeleton, .cut-anim *, .burst-play *, .intro, .intro * { animation: none !important; stroke-dashoffset: 0 !important; opacity: 1 !important; transform: none !important; }
 }

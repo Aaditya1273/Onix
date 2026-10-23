@@ -105,7 +105,9 @@ function Swimlane({ ds, arcs }: { ds: Decision[]; arcs: Arc[] }) {
             const v = vOf(d), stop = v !== 'allowed', cx = x(d), cy = y(d)
             const body = <><b className="font-mono">{d.tool}</b><br />{VERDICT[v].label} · {stageLabel(d.stage)}<br />session {shortSession(d.session_id)} · decision #{i + 1} · {fmtTime(ns(d), span)}<br />{d.graph_queried ? `${d.graph_ms.toFixed(2)} ms in the graph` : 'graph not queried'}</>
             const label = `${VERDICT[v].label}: ${d.tool} in session ${shortSession(d.session_id)}, ${stageLabel(d.stage)}`
-            const pop = { className: 'a-pop', style: { ['--d' as string]: `${0.1 + ((cx - L) / Math.max(1, W - L - R)) * 1.3}s` } }
+            // a fixed pseudo-random scatter per dot, so it is the same on every render
+            const h = (i * 2654435761) % 1000 / 1000, h2 = (i * 40503 + 17) % 1000 / 1000
+            const pop = { className: 'a-gather', style: { ['--d' as string]: `${0.05 + ((cx - L) / Math.max(1, W - L - R)) * 0.6}s`, ['--dx' as string]: `${(h - 0.5) * 260}px`, ['--dy' as string]: `${(h2 - 0.5) * 160}px` } }
             return stop
               ? <g key={i} {...tipProps(setTip, cx, cy - 6, label, body)} {...pop}><Mark v={v} x={cx} y={cy} s={7} /></g>
               : <g key={i} onMouseEnter={() => setTip({ x: cx, y: cy - 4, body })} {...pop}><Mark v={v} x={cx} y={cy} s={4} /></g>
